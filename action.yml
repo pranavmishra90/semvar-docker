@@ -1,5 +1,5 @@
 ---
-name: Python Semantic Release
+name: SemVar with Docker
 
 description: Automated Releases via SemVer and Commit Message Conventions
 
@@ -127,4 +127,5 @@ outputs:
 
 runs:
   using: docker
-  image: Dockerfile
+  # image: Dockerfile
+  image: pranavmishra90/semvar:latest
