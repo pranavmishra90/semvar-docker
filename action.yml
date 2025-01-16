@@ -1,7 +1,10 @@
 ---
 name: SemVar with Docker
 
-description: Pre-built Dockerized Automatic Semantic Versioning for Python projects
+description: Automated Releases via SemVer and Commit Message Conventions
+
+branding:
+  color: orange
 
 inputs:
   root_options:
@@ -92,6 +95,13 @@ inputs:
     description: |
       Whether or not to create a release in the remote VCS, if supported
 
+  build:
+    type: string
+    required: false
+    description: |
+      Whether or not to run the build_command for the project. Defaults are
+      handled by python-semantic-release internal version command.
+
   build_metadata:
     type: string
     required: false
@@ -99,17 +109,21 @@ inputs:
       Build metadata to append to the new version
 
 outputs:
+  is_prerelease:
+    description: |
+      "true" if the version is a prerelease, "false" otherwise
+
   released:
     description: |
       "true" if a release was made, "false" otherwise
 
-  version:
-    description: |
-      The newly released version if one was made, otherwise the current version
-
   tag:
     description: |
       The Git tag corresponding to the version output
+
+  version:
+    description: |
+      The newly released version if one was made, otherwise the current version
 
 runs:
   using: docker

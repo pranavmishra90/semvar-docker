@@ -1,352 +1,402 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from datetime import timedelta
+from itertools import count
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from git import Repo
 
-from tests.const import EXAMPLE_HVCS_DOMAIN
-from tests.util import copy_dir_tree, temporary_working_directory
+from semantic_release.cli.config import ChangelogOutputFormat
+
+import tests.conftest
+import tests.const
+import tests.util
+from tests.const import (
+    EXAMPLE_HVCS_DOMAIN,
+    INITIAL_COMMIT_MESSAGE,
+    RepoActionStep,
+)
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from typing import Sequence
 
-    from semantic_release.hvcs import HvcsBase
-
-    from tests.conftest import TeardownCachedDirFn
+    from tests.conftest import (
+        GetCachedRepoDataFn,
+        GetMd5ForSetOfFilesFn,
+        GetStableDateNowFn,
+    )
     from tests.fixtures.example_project import ExProjectDir
     from tests.fixtures.git_repo import (
-        BaseRepoVersionDef,
-        BuildRepoFn,
+        BuildRepoFromDefinitionFn,
+        BuildRepoOrCopyCacheFn,
+        BuildSpecificRepoFn,
+        BuiltRepoResult,
         CommitConvention,
-        CreateReleaseFn,
+        ConvertCommitSpecsToCommitDefsFn,
         ExProjectGitRepoFn,
         GetRepoDefinitionFn,
-        GetVersionStringsFn,
-        RepoDefinition,
-        SimulateChangeCommitsNReturnChangelogEntryFn,
-        SimulateDefaultChangelogCreationFn,
+        RepoActions,
+        RepoActionWriteChangelogsDestFile,
         TomlSerializableTypes,
-        VersionStr,
     )
 
 
 @pytest.fixture(scope="session")
-def get_commits_for_trunk_only_repo_w_prerelease_tags() -> GetRepoDefinitionFn:
-    base_definition: dict[str, BaseRepoVersionDef] = {
-        "0.1.0": {
-            "changelog_sections": {
-                "angular": [{"section": "Unknown", "i_commits": [0]}],
-                "emoji": [{"section": "Other", "i_commits": [0]}],
-                "scipy": [{"section": "Unknown", "i_commits": [0]}],
-                "tag": [{"section": "Unknown", "i_commits": [0]}],
-            },
-            "commits": [
-                {
-                    "angular": "Initial commit",
-                    "emoji": "Initial commit",
-                    "scipy": "Initial commit",
-                    "tag": "Initial commit",
-                }
-            ],
-        },
-        "0.1.1-rc.1": {
-            "changelog_sections": {
-                "angular": [{"section": "Fix", "i_commits": [0]}],
-                "emoji": [{"section": ":bug:", "i_commits": [0]}],
-                "scipy": [{"section": "Fix", "i_commits": [0]}],
-                "tag": [{"section": "Fix", "i_commits": [0]}],
-            },
-            "commits": [
-                {
-                    "angular": "fix: add some more text",
-                    "emoji": ":bug: add some more text",
-                    "scipy": "MAINT: add some more text",
-                    "tag": ":nut_and_bolt: add some more text",
-                }
-            ],
-        },
-        "0.2.0-rc.1": {
-            "changelog_sections": {
-                "angular": [{"section": "Feature", "i_commits": [0]}],
-                "emoji": [{"section": ":sparkles:", "i_commits": [0]}],
-                "scipy": [{"section": "Feature", "i_commits": [0]}],
-                "tag": [{"section": "Feature", "i_commits": [0]}],
-            },
-            "commits": [
-                {
-                    "angular": "feat: add some more text",
-                    "emoji": ":sparkles: add some more text",
-                    "scipy": "ENH: add some more text",
-                    "tag": ":sparkles: add some more text",
-                },
-            ],
-        },
-        "0.2.0": {
-            "changelog_sections": {
-                "angular": [{"section": "Feature", "i_commits": [0]}],
-                "emoji": [{"section": ":sparkles:", "i_commits": [0]}],
-                "scipy": [{"section": "Feature", "i_commits": [0]}],
-                "tag": [{"section": "Feature", "i_commits": [0]}],
-            },
-            "commits": [
-                {
-                    "angular": "feat: add some more text",
-                    "emoji": ":sparkles: add some more text",
-                    "scipy": "ENH: add some more text",
-                    "tag": ":sparkles: add some more text",
-                },
-            ],
-        },
-    }
-
-    def _get_commits_for_trunk_only_repo_w_prerelease_tags(
-        commit_type: CommitConvention = "angular",
-    ) -> RepoDefinition:
-        definition: RepoDefinition = {}
-
-        for version, version_def in base_definition.items():
-            definition[version] = {
-                # Extract the correct changelog section header for the commit type
-                "changelog_sections": deepcopy(
-                    version_def["changelog_sections"][commit_type]
-                ),
-                "commits": [
-                    # Extract the correct commit message for the commit type
-                    message_variants[commit_type]
-                    for message_variants in version_def["commits"]
-                ],
-            }
-
-        return definition
-
-    return _get_commits_for_trunk_only_repo_w_prerelease_tags
+def deps_files_4_repo_w_prereleases(
+    deps_files_4_example_git_project: list[Path],
+) -> list[Path]:
+    return [
+        *deps_files_4_example_git_project,
+        # This file
+        Path(__file__).absolute(),
+        # because of imports
+        Path(tests.const.__file__).absolute(),
+        Path(tests.util.__file__).absolute(),
+        # because of the fixtures
+        Path(tests.conftest.__file__).absolute(),
+    ]
 
 
 @pytest.fixture(scope="session")
-def get_versions_for_trunk_only_repo_w_prerelease_tags(
-    get_commits_for_trunk_only_repo_w_prerelease_tags: GetRepoDefinitionFn,
-) -> GetVersionStringsFn:
-    def _get_versions_for_trunk_only_repo_w_prerelease_tags() -> list[VersionStr]:
-        return list(get_commits_for_trunk_only_repo_w_prerelease_tags().keys())
-
-    return _get_versions_for_trunk_only_repo_w_prerelease_tags
+def build_spec_hash_4_repo_w_prereleases(
+    get_md5_for_set_of_files: GetMd5ForSetOfFilesFn,
+    deps_files_4_repo_w_prereleases: list[Path],
+) -> str:
+    # Generates a hash of the build spec to set when to invalidate the cache
+    return get_md5_for_set_of_files(deps_files_4_repo_w_prereleases)
 
 
 @pytest.fixture(scope="session")
-def build_trunk_only_repo_w_prerelease_tags(
-    get_commits_for_trunk_only_repo_w_prerelease_tags: GetRepoDefinitionFn,
-    build_configured_base_repo: BuildRepoFn,
-    default_tag_format_str: str,
+def get_repo_definition_4_trunk_only_repo_w_prerelease_tags(
+    convert_commit_specs_to_commit_defs: ConvertCommitSpecsToCommitDefsFn,
     changelog_md_file: Path,
-    simulate_change_commits_n_rtn_changelog_entry: SimulateChangeCommitsNReturnChangelogEntryFn,
-    simulate_default_changelog_creation: SimulateDefaultChangelogCreationFn,
-    create_release_tagged_commit: CreateReleaseFn,
-) -> BuildRepoFn:
-    def _build_trunk_only_repo_w_prerelease_tags(
-        dest_dir: Path | str,
-        commit_type: CommitConvention = "angular",
+    changelog_rst_file: Path,
+    stable_now_date: GetStableDateNowFn,
+) -> GetRepoDefinitionFn:
+    """
+    Builds a repository with trunk-only committing (no-branching) strategy with
+    official and prereleases releases.
+    """
+
+    def _get_repo_from_defintion(
+        commit_type: CommitConvention,
         hvcs_client_name: str = "github",
         hvcs_domain: str = EXAMPLE_HVCS_DOMAIN,
         tag_format_str: str | None = None,
         extra_configs: dict[str, TomlSerializableTypes] | None = None,
-    ) -> tuple[Path, HvcsBase]:
-        repo_dir, hvcs = build_configured_base_repo(
-            dest_dir,
-            commit_type=commit_type,
-            hvcs_client_name=hvcs_client_name,
-            hvcs_domain=hvcs_domain,
-            tag_format_str=tag_format_str,
-            extra_configs=extra_configs,
+        mask_initial_release: bool = False,
+    ) -> Sequence[RepoActions]:
+        stable_now_datetime = stable_now_date()
+        commit_timestamp_gen = (
+            (stable_now_datetime + timedelta(seconds=i)).isoformat(timespec="seconds")
+            for i in count(step=1)
         )
 
-        repo_def = get_commits_for_trunk_only_repo_w_prerelease_tags(commit_type)
-        versions = (key for key in repo_def)
-        next_version = next(versions)
-        next_version_def = repo_def[next_version]
+        changelog_file_definitons: Sequence[RepoActionWriteChangelogsDestFile] = [
+            {
+                "path": changelog_md_file,
+                "format": ChangelogOutputFormat.MARKDOWN,
+            },
+            {
+                "path": changelog_rst_file,
+                "format": ChangelogOutputFormat.RESTRUCTURED_TEXT,
+            },
+        ]
 
-        # must be after build_configured_base_repo() so we dont set the
-        # default tag format in the pyproject.toml (we want semantic-release to use its defaults)
-        # however we need it to manually create the tags it knows how to parse
-        tag_format = tag_format_str or default_tag_format_str
+        repo_construction_steps: list[RepoActions] = []
 
-        with temporary_working_directory(repo_dir), Repo(".") as git_repo:
-            # commit initial files & update commit msg with sha & url
-            next_version_def["commits"] = simulate_change_commits_n_rtn_changelog_entry(
-                git_repo, next_version_def["commits"], hvcs
+        repo_construction_steps.append(
+            {
+                "action": RepoActionStep.CONFIGURE,
+                "details": {
+                    "commit_type": commit_type,
+                    "hvcs_client_name": hvcs_client_name,
+                    "hvcs_domain": hvcs_domain,
+                    "tag_format_str": tag_format_str,
+                    "mask_initial_release": mask_initial_release,
+                    "extra_configs": {
+                        # Set the default release branch
+                        "tool.semantic_release.branches.main": {
+                            "match": r"^(main|master)$",
+                            "prerelease": False,
+                        },
+                        "tool.semantic_release.allow_zero_version": True,
+                        **(extra_configs or {}),
+                    },
+                },
+            }
+        )
+
+        # Make initial release
+        new_version = "0.1.0"
+
+        repo_construction_steps.extend(
+            [
+                {
+                    "action": RepoActionStep.MAKE_COMMITS,
+                    "details": {
+                        "commits": convert_commit_specs_to_commit_defs(
+                            [
+                                {
+                                    "angular": INITIAL_COMMIT_MESSAGE,
+                                    "emoji": INITIAL_COMMIT_MESSAGE,
+                                    "scipy": INITIAL_COMMIT_MESSAGE,
+                                    "datetime": next(commit_timestamp_gen),
+                                    "include_in_changelog": bool(
+                                        commit_type == "emoji"
+                                    ),
+                                },
+                                {
+                                    "angular": "feat: add new feature",
+                                    "emoji": ":sparkles: add new feature",
+                                    "scipy": "ENH: add new feature",
+                                    "datetime": next(commit_timestamp_gen),
+                                    "include_in_changelog": True,
+                                },
+                            ],
+                            commit_type,
+                        ),
+                    },
+                },
+                {
+                    "action": RepoActionStep.RELEASE,
+                    "details": {
+                        "version": new_version,
+                        "datetime": next(commit_timestamp_gen),
+                        "pre_actions": [
+                            {
+                                "action": RepoActionStep.WRITE_CHANGELOGS,
+                                "details": {
+                                    "new_version": new_version,
+                                    "dest_files": changelog_file_definitons,
+                                },
+                            },
+                        ],
+                    },
+                },
+            ]
+        )
+
+        # Make a fix and release it as a release candidate
+        new_version = "0.1.1-rc.1"
+        repo_construction_steps.extend(
+            [
+                {
+                    "action": RepoActionStep.MAKE_COMMITS,
+                    "details": {
+                        "commits": convert_commit_specs_to_commit_defs(
+                            [
+                                {
+                                    "angular": "fix: correct some text",
+                                    "emoji": ":bug: correct some text",
+                                    "scipy": "MAINT: correct some text",
+                                    "datetime": next(commit_timestamp_gen),
+                                    "include_in_changelog": True,
+                                },
+                            ],
+                            commit_type,
+                        ),
+                    },
+                },
+                {
+                    "action": RepoActionStep.RELEASE,
+                    "details": {
+                        "version": new_version,
+                        "datetime": next(commit_timestamp_gen),
+                        "pre_actions": [
+                            {
+                                "action": RepoActionStep.WRITE_CHANGELOGS,
+                                "details": {
+                                    "new_version": new_version,
+                                    "dest_files": changelog_file_definitons,
+                                },
+                            },
+                        ],
+                    },
+                },
+            ]
+        )
+
+        # Make an additional feature change and release it as a new release candidate
+        new_version = "0.2.0-rc.1"
+        repo_construction_steps.extend(
+            [
+                {
+                    "action": RepoActionStep.MAKE_COMMITS,
+                    "details": {
+                        "commits": convert_commit_specs_to_commit_defs(
+                            [
+                                {
+                                    "angular": "feat: add some more text",
+                                    "emoji": ":sparkles: add some more text",
+                                    "scipy": "ENH: add some more text",
+                                    "datetime": next(commit_timestamp_gen),
+                                    "include_in_changelog": True,
+                                },
+                            ],
+                            commit_type,
+                        ),
+                    },
+                },
+                {
+                    "action": RepoActionStep.RELEASE,
+                    "details": {
+                        "version": new_version,
+                        "datetime": next(commit_timestamp_gen),
+                        "pre_actions": [
+                            {
+                                "action": RepoActionStep.WRITE_CHANGELOGS,
+                                "details": {
+                                    "new_version": new_version,
+                                    "dest_files": changelog_file_definitons,
+                                },
+                            },
+                        ],
+                    },
+                },
+            ]
+        )
+
+        # Make an additional feature change and officially release the latest
+        new_version = "0.2.0"
+        repo_construction_steps.extend(
+            [
+                {
+                    "action": RepoActionStep.MAKE_COMMITS,
+                    "details": {
+                        "commits": convert_commit_specs_to_commit_defs(
+                            [
+                                {
+                                    "angular": "feat(cli): add cli command",
+                                    "emoji": ":sparkles:(cli) add cli command",
+                                    "scipy": "ENH(cli): add cli command",
+                                    "datetime": next(commit_timestamp_gen),
+                                    "include_in_changelog": True,
+                                },
+                            ],
+                            commit_type,
+                        ),
+                    },
+                },
+                {
+                    "action": RepoActionStep.RELEASE,
+                    "details": {
+                        "version": new_version,
+                        "datetime": next(commit_timestamp_gen),
+                        "pre_actions": [
+                            {
+                                "action": RepoActionStep.WRITE_CHANGELOGS,
+                                "details": {
+                                    "new_version": new_version,
+                                    "dest_files": changelog_file_definitons,
+                                },
+                            },
+                        ],
+                    },
+                },
+            ]
+        )
+
+        return repo_construction_steps
+
+    return _get_repo_from_defintion
+
+
+@pytest.fixture(scope="session")
+def build_trunk_only_repo_w_prerelease_tags(
+    build_repo_from_definition: BuildRepoFromDefinitionFn,
+    get_repo_definition_4_trunk_only_repo_w_prerelease_tags: GetRepoDefinitionFn,
+    get_cached_repo_data: GetCachedRepoDataFn,
+    build_repo_or_copy_cache: BuildRepoOrCopyCacheFn,
+    build_spec_hash_4_repo_w_prereleases: str,
+) -> BuildSpecificRepoFn:
+    def _build_specific_repo_type(
+        repo_name: str, commit_type: CommitConvention, dest_dir: Path
+    ) -> Sequence[RepoActions]:
+        def _build_repo(cached_repo_path: Path) -> Sequence[RepoActions]:
+            repo_construction_steps = (
+                get_repo_definition_4_trunk_only_repo_w_prerelease_tags(
+                    commit_type=commit_type,
+                )
             )
+            return build_repo_from_definition(cached_repo_path, repo_construction_steps)
 
-            # Make initial feature release (v0.1.0)
-            create_release_tagged_commit(git_repo, next_version, tag_format)
+        build_repo_or_copy_cache(
+            repo_name=repo_name,
+            build_spec_hash=build_spec_hash_4_repo_w_prereleases,
+            build_repo_func=_build_repo,
+            dest_dir=dest_dir,
+        )
 
-            # Increment version pointer
-            next_version = next(versions)
-            next_version_def = repo_def[next_version]
+        if not (cached_repo_data := get_cached_repo_data(proj_dirname=repo_name)):
+            raise ValueError("Failed to retrieve repo data from cache")
 
-            # Add a patch level change
-            next_version_def["commits"] = simulate_change_commits_n_rtn_changelog_entry(
-                git_repo, next_version_def["commits"], hvcs
-            )
+        return cached_repo_data["build_definition"]
 
-            # Make a patch level release candidate (v0.1.1-rc.1)
-            create_release_tagged_commit(git_repo, next_version, tag_format)
-
-            # Increment version pointer
-            next_version = next(versions)
-            next_version_def = repo_def[next_version]
-
-            # Make a minor level change
-            next_version_def["commits"] = simulate_change_commits_n_rtn_changelog_entry(
-                git_repo, next_version_def["commits"], hvcs
-            )
-
-            # Make the next feature level prerelease (v0.2.0-rc.1)
-            create_release_tagged_commit(git_repo, next_version, tag_format)
-
-            # Increment version pointer
-            next_version = next(versions)
-            next_version_def = repo_def[next_version]
-
-            # Make a minor level change
-            next_version_def["commits"] = simulate_change_commits_n_rtn_changelog_entry(
-                git_repo, next_version_def["commits"], hvcs
-            )
-
-            # write expected changelog (should match template changelog)
-            simulate_default_changelog_creation(
-                repo_def,
-                repo_dir.joinpath(changelog_md_file),
-            )
-
-            # Make a full release
-            create_release_tagged_commit(git_repo, next_version, tag_format)
-
-        return repo_dir, hvcs
-
-    return _build_trunk_only_repo_w_prerelease_tags
+    return _build_specific_repo_type
 
 
 # --------------------------------------------------------------------------- #
-# Session-level fixtures to use to set up cached repositories on first use    #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture(scope="session")
-def cached_repo_with_single_branch_and_prereleases_angular_commits(
-    build_trunk_only_repo_w_prerelease_tags: BuildRepoFn,
-    cached_files_dir: Path,
-    teardown_cached_dir: TeardownCachedDirFn,
-) -> Path:
-    cached_repo_path = cached_files_dir.joinpath(
-        cached_repo_with_single_branch_and_prereleases_angular_commits.__name__
-    )
-    build_trunk_only_repo_w_prerelease_tags(cached_repo_path, "angular")
-    return teardown_cached_dir(cached_repo_path)
-
-
-@pytest.fixture(scope="session")
-def cached_repo_with_single_branch_and_prereleases_emoji_commits(
-    build_trunk_only_repo_w_prerelease_tags: BuildRepoFn,
-    cached_files_dir: Path,
-    teardown_cached_dir: TeardownCachedDirFn,
-) -> Path:
-    cached_repo_path = cached_files_dir.joinpath(
-        cached_repo_with_single_branch_and_prereleases_emoji_commits.__name__
-    )
-    build_trunk_only_repo_w_prerelease_tags(cached_repo_path, "emoji")
-    return teardown_cached_dir(cached_repo_path)
-
-
-@pytest.fixture(scope="session")
-def cached_repo_with_single_branch_and_prereleases_scipy_commits(
-    build_trunk_only_repo_w_prerelease_tags: BuildRepoFn,
-    cached_files_dir: Path,
-    teardown_cached_dir: TeardownCachedDirFn,
-) -> Path:
-    cached_repo_path = cached_files_dir.joinpath(
-        cached_repo_with_single_branch_and_prereleases_scipy_commits.__name__
-    )
-    build_trunk_only_repo_w_prerelease_tags(cached_repo_path, "scipy")
-    return teardown_cached_dir(cached_repo_path)
-
-
-@pytest.fixture(scope="session")
-def cached_repo_with_single_branch_and_prereleases_tag_commits(
-    build_trunk_only_repo_w_prerelease_tags: BuildRepoFn,
-    cached_files_dir: Path,
-    teardown_cached_dir: TeardownCachedDirFn,
-) -> Path:
-    cached_repo_path = cached_files_dir.joinpath(
-        cached_repo_with_single_branch_and_prereleases_tag_commits.__name__
-    )
-    build_trunk_only_repo_w_prerelease_tags(cached_repo_path, "tag")
-    return teardown_cached_dir(cached_repo_path)
-
-
-# --------------------------------------------------------------------------- #
-# Test-level fixtures to use to set up temporary test directory               #
+# Test-level fixtures that will cache the built directory & set up test case  #
 # --------------------------------------------------------------------------- #
 
 
 @pytest.fixture
-def repo_with_single_branch_and_prereleases_angular_commits(
-    cached_repo_with_single_branch_and_prereleases_angular_commits: Path,
+def repo_w_trunk_only_n_prereleases_angular_commits(
+    build_trunk_only_repo_w_prerelease_tags: BuildSpecificRepoFn,
     example_project_git_repo: ExProjectGitRepoFn,
     example_project_dir: ExProjectDir,
     change_to_ex_proj_dir: None,
-) -> Repo:
-    if not cached_repo_with_single_branch_and_prereleases_angular_commits.exists():
-        raise RuntimeError("Unable to find cached repository!")
-    copy_dir_tree(
-        cached_repo_with_single_branch_and_prereleases_angular_commits,
-        example_project_dir,
-    )
-    return example_project_git_repo()
+) -> BuiltRepoResult:
+    repo_name = repo_w_trunk_only_n_prereleases_angular_commits.__name__
+    commit_type: CommitConvention = repo_name.split("_")[-2]  # type: ignore[assignment]
+
+    return {
+        "definition": build_trunk_only_repo_w_prerelease_tags(
+            repo_name=repo_name,
+            commit_type=commit_type,
+            dest_dir=example_project_dir,
+        ),
+        "repo": example_project_git_repo(),
+    }
 
 
 @pytest.fixture
-def repo_with_single_branch_and_prereleases_emoji_commits(
-    cached_repo_with_single_branch_and_prereleases_emoji_commits: Path,
+def repo_w_trunk_only_n_prereleases_emoji_commits(
+    build_trunk_only_repo_w_prerelease_tags: BuildSpecificRepoFn,
     example_project_git_repo: ExProjectGitRepoFn,
     example_project_dir: ExProjectDir,
     change_to_ex_proj_dir: None,
-) -> Repo:
-    if not cached_repo_with_single_branch_and_prereleases_emoji_commits.exists():
-        raise RuntimeError("Unable to find cached repository!")
-    copy_dir_tree(
-        cached_repo_with_single_branch_and_prereleases_emoji_commits,
-        example_project_dir,
-    )
-    return example_project_git_repo()
+) -> BuiltRepoResult:
+    repo_name = repo_w_trunk_only_n_prereleases_emoji_commits.__name__
+    commit_type: CommitConvention = repo_name.split("_")[-2]  # type: ignore[assignment]
+
+    return {
+        "definition": build_trunk_only_repo_w_prerelease_tags(
+            repo_name=repo_name,
+            commit_type=commit_type,
+            dest_dir=example_project_dir,
+        ),
+        "repo": example_project_git_repo(),
+    }
 
 
 @pytest.fixture
-def repo_with_single_branch_and_prereleases_scipy_commits(
-    cached_repo_with_single_branch_and_prereleases_scipy_commits: Path,
+def repo_w_trunk_only_n_prereleases_scipy_commits(
+    build_trunk_only_repo_w_prerelease_tags: BuildSpecificRepoFn,
     example_project_git_repo: ExProjectGitRepoFn,
     example_project_dir: ExProjectDir,
     change_to_ex_proj_dir: None,
-) -> Repo:
-    if not cached_repo_with_single_branch_and_prereleases_scipy_commits.exists():
-        raise RuntimeError("Unable to find cached repository!")
-    copy_dir_tree(
-        cached_repo_with_single_branch_and_prereleases_scipy_commits,
-        example_project_dir,
-    )
-    return example_project_git_repo()
+) -> BuiltRepoResult:
+    repo_name = repo_w_trunk_only_n_prereleases_scipy_commits.__name__
+    commit_type: CommitConvention = repo_name.split("_")[-2]  # type: ignore[assignment]
 
-
-@pytest.fixture
-def repo_with_single_branch_and_prereleases_tag_commits(
-    cached_repo_with_single_branch_and_prereleases_tag_commits: Path,
-    example_project_git_repo: ExProjectGitRepoFn,
-    example_project_dir: ExProjectDir,
-    change_to_ex_proj_dir: None,
-) -> Repo:
-    if not cached_repo_with_single_branch_and_prereleases_tag_commits.exists():
-        raise RuntimeError("Unable to find cached repository!")
-    copy_dir_tree(
-        cached_repo_with_single_branch_and_prereleases_tag_commits, example_project_dir
-    )
-    return example_project_git_repo()
+    return {
+        "definition": build_trunk_only_repo_w_prerelease_tags(
+            repo_name=repo_name,
+            commit_type=commit_type,
+            dest_dir=example_project_dir,
+        ),
+        "repo": example_project_git_repo(),
+    }

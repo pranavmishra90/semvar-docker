@@ -5,8 +5,17 @@ from semantic_release.commit_parser import (
     AngularParserOptions,
     EmojiCommitParser,
     EmojiParserOptions,
-    TagCommitParser,
-    TagParserOptions,
+)
+
+from tests.const import (
+    ANGULAR_COMMITS_CHORE,
+    ANGULAR_COMMITS_MAJOR,
+    ANGULAR_COMMITS_MINOR,
+    ANGULAR_COMMITS_PATCH,
+    EMOJI_COMMITS_CHORE,
+    EMOJI_COMMITS_MAJOR,
+    EMOJI_COMMITS_MINOR,
+    EMOJI_COMMITS_PATCH,
 )
 
 # Note scipy defined in ./scipy.py as already used there
@@ -37,10 +46,40 @@ def default_emoji_parser_options(
 
 
 @pytest.fixture(scope="session")
-def default_tag_parser() -> TagCommitParser:
-    return TagCommitParser()
+def angular_major_commits():
+    return ANGULAR_COMMITS_MAJOR
 
 
 @pytest.fixture(scope="session")
-def default_tag_parser_options(default_tag_parser: TagCommitParser) -> TagParserOptions:
-    return default_tag_parser.get_default_options()
+def angular_minor_commits():
+    return ANGULAR_COMMITS_MINOR
+
+
+@pytest.fixture(scope="session")
+def angular_patch_commits():
+    return ANGULAR_COMMITS_PATCH
+
+
+@pytest.fixture(scope="session")
+def angular_chore_commits():
+    return ANGULAR_COMMITS_CHORE
+
+
+@pytest.fixture(scope="session")
+def emoji_major_commits():
+    return EMOJI_COMMITS_MAJOR
+
+
+@pytest.fixture(scope="session")
+def emoji_minor_commits():
+    return EMOJI_COMMITS_MINOR
+
+
+@pytest.fixture(scope="session")
+def emoji_patch_commits():
+    return EMOJI_COMMITS_PATCH
+
+
+@pytest.fixture(scope="session")
+def emoji_chore_commits():
+    return EMOJI_COMMITS_CHORE

@@ -1,12 +1,12 @@
 # Ref: https://packaging.python.org/en/latest/specifications/declaring-project-metadata/
 # and https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html
 [build-system]
-requires = ["setuptools ~= 69.0", "wheel ~= 0.42"]
+requires = ["setuptools ~= 75.3.0", "wheel ~= 0.42"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "python-semantic-release"
-version = "9.8.7"
+version = "9.16.1"
 description = "Automatic Semantic Versioning for Python projects"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -18,6 +18,7 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 readme = "README.rst"
 authors = [{ name = "Rolf Erik Lekang", email = "me@rolflekang.com" }]
@@ -37,8 +38,8 @@ dependencies = [
 ]
 
 [project.scripts]
-semantic-release = "semantic_release.cli.commands.main:main"
-psr = "semantic_release.cli.commands.main:main"
+semantic-release = "semantic_release.__main__:main"
+psr = "semantic_release.__main__:main"
 
 [project.urls]
 changelog = "https://github.com/python-semantic-release/python-semantic-release/blob/master/CHANGELOG.md"
@@ -59,26 +60,41 @@ docs = [
 ]
 test = [
   "coverage[toml] ~= 7.0",
+  "filelock ~= 3.15",
+  "flatdict ~= 4.0",
+  "freezegun ~= 1.5",
+  "pyyaml ~= 6.0",
   "pytest ~= 8.3",
-  "pytest-env ~= 1.0",
-  "pytest-xdist ~= 3.0",
-  "pytest-mock ~= 3.0",
-  "pytest-lazy-fixtures ~= 1.1.1",
-  "pytest-cov ~= 5.0",
-  "pytest-pretty ~= 1.2",
   "pytest-clarity ~= 1.0",
+  "pytest-cov ~= 5.0",
+  "pytest-env ~= 1.0",
+  "pytest-lazy-fixtures ~= 1.1.1",
+  "pytest-mock ~= 3.0",
+  "pytest-order ~= 1.3",
+  "pytest-pretty ~= 1.2",
+  "pytest-xdist ~= 3.0",
   "responses ~= 0.25.0",
   "requests-mock ~= 1.10",
 ]
 dev = [
   "pre-commit ~= 3.5",
   "tox ~= 4.11",
-  "ruff == 0.5.0"
+  "ruff == 0.6.1"
 ]
 mypy = [
-  "mypy == 1.10.1",
+  "mypy == 1.14.1",
   "types-requests ~= 2.32.0",
+  "types-pyyaml ~= 6.0",
 ]
+
+
+[tool.setuptools]
+include-package-data = true
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 
 [tool.pytest.ini_options]
 env = [
@@ -86,11 +102,11 @@ env = [
 ]
 addopts = [
   # TO DEBUG in single process, swap auto to 0
-  "-nauto",
+  # "-nauto",
   # "-n0",
   "-ra",
   "--diff-symbols",
-  "--cache-clear",
+  "--durations=20",
   # No default coverage - causes problems with debuggers
   # "--cov=semantic_release",
   # "--cov-context=test",
@@ -99,6 +115,11 @@ addopts = [
 ]
 testpaths = [
   "tests"
+]
+markers = [
+  "unit: mark a test as a unit test",
+  "e2e: mark a test as a end-to-end test",
+  "comprehensive: mark a test as a comprehensive (multiple variations) test",
 ]
 
 [tool.coverage.html]
@@ -132,7 +153,7 @@ commands =
 [testenv:mypy]
 deps = .[mypy]
 commands =
-    mypy semantic_release
+    mypy .
 
 [testenv:coverage]
 deps = coverage[toml]
@@ -149,14 +170,12 @@ commands =
 
 [tool.mypy]
 python_version = "3.8"
-packages = ["semantic_release"]
 show_column_numbers = true
 show_error_context = true
 pretty = true
 error_summary = true
 follow_imports = "normal"
 enable_error_code = ["ignore-without-code"]
-ignore_missing_imports = true   # gitpython is very dynamic
 disallow_untyped_calls = true
 # warn_return_any = true
 strict_optional = true
@@ -172,9 +191,15 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
-allow_untyped_defs = true
-allow_incomplete_defs = true
-allow_untyped_calls = true
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "flatdict"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "shellingham"
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
@@ -298,11 +323,11 @@ quote-style = "double"
 # Imported but unused
 "__init__.py" = ["F401"]
 # pydantic 1 can't handle __future__ annotations-enabled syntax on < 3.10
-"semantic_release/cli/config.py" = ["UP", "TCH"]
-"semantic_release/commit_parser/*" = ["UP", "FA", "TCH"]
+"src/semantic_release/cli/config.py" = ["UP", "TCH"]
+"src/semantic_release/commit_parser/*" = ["UP", "FA", "TCH"]
 # Method argument not used. This is mostly a base class
 # anyway
-"semantic_release/hvcs/_base.py" = ["ARG002"]
+"src/semantic_release/hvcs/_base.py" = ["ARG002"]
 # from tests.fixtures import * is deliberate
 "tests/conftest.py" = ["F403"]
 "tests/fixtures/**/__init__.py" = ["F403"]
@@ -327,7 +352,7 @@ quote-style = "double"
   # Annotations
   "ANN",
   # Using format instead of f-string for readablity
-  "UP032"
+  "UP032",
 ]
 
 
@@ -375,12 +400,11 @@ ignore_names = ["change_to_ex_proj_dir", "init_example_project"]
 logging_use_named_masks = true
 commit_parser = "angular"
 build_command = """
-    python -m scripts.bump_version_in_docs
     python -m pip install -e .[build]
     python -m build .
 """
 major_on_zero = true
-version_variables = ["semantic_release/__init__.py:__version__"]
+version_variables = ["src/semantic_release/__init__.py:__version__"]
 version_toml = ["pyproject.toml:project.version"]
 
 [tool.semantic_release.changelog]

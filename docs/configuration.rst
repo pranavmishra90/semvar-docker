@@ -122,6 +122,8 @@ sure to use the correct root key dependending on the configuration format you ar
 ``allow_zero_version``
 """"""""""""""""""""""
 
+*Introduced in v9.2.0*
+
 **Type:** ``bool``
 
 This flag controls whether or not Python Semantic Release will use version
@@ -216,13 +218,13 @@ ALLUSERSAPPDATA           Pass-through ``ALLUSERAPPDATA`` if exists in process e
 ALLUSERSPROFILE           Pass-through ``ALLUSERSPPPROFILE`` if exists in process env, unset otherwise
 APPDATA                   Pass-through ``APPDATA`` if exists in process env, unset otherwise
 COMMONPROGRAMFILES        Pass-through ``COMMONPROGRAMFILES`` if exists in process env, unset otherwise
-COMMONPROGRAMFILES(x86)   Pass-through ``COMMONPROGRAMFILES(x86)`` if exists in process env, unset otherwise
+COMMONPROGRAMFILES(X86)   Pass-through ``COMMONPROGRAMFILES(X86)`` if exists in process env, unset otherwise
 DEFAULTUSERPROFILE        Pass-through ``DEFAULTUSERPROFILE`` if exists in process env, unset otherwise
 HOMEPATH                  Pass-through ``HOMEPATH`` if exists in process env, unset otherwise
 PATHEXT                   Pass-through ``PATHEXT`` if exists in process env, unset otherwise
 PROFILESFOLDER            Pass-through ``PROFILESFOLDER`` if exists in process env, unset otherwise
 PROGRAMFILES              Pass-through ``PROGRAMFILES`` if exists in process env, unset otherwise
-PROGRAMFILES(x86)         Pass-through ``PROGRAMFILES(x86)`` if exists in process env, unset otherwise
+PROGRAMFILES(X86)         Pass-through ``PROGRAMFILES(X86)`` if exists in process env, unset otherwise
 SYSTEM                    Pass-through ``SYSTEM`` if exists in process env, unset otherwise
 SYSTEM16                  Pass-through ``SYSTEM16`` if exists in process env, unset otherwise
 SYSTEM32                  Pass-through ``SYSTEM32`` if exists in process env, unset otherwise
@@ -243,6 +245,8 @@ WINDIR                    Pass-through ``WINDIR`` if exists in process env, unse
 
 ``build_command_env``
 """""""""""""""""""""
+
+*Introduced in v9.7.2*
 
 **Type:** ``Optional[list[str]]``
 
@@ -291,16 +295,126 @@ This section outlines the configuration options available that modify changelog 
 ``changelog_file``
 ******************
 
+.. warning::
+    *Deprecated in v9.11.0.* This setting has been moved to
+    :ref:`changelog.default_templates.changelog_file <config-changelog-default_templates-changelog_file>`
+    for a more logical grouping. This setting will be removed in a future major release.
+
 **Type:** ``str``
 
 Specify the name of the changelog file that will be created. This file will be created
 or overwritten (if it previously exists) with the rendered default template included
 with Python Semantic Release.
 
+Depending on the file extension of this setting, the changelog will be rendered in the
+format designated by the extension. PSR, as of v9.11.0, provides a default changelog template
+in both Markdown (``.md``) and reStructuredText (``.rst``) formats. If the file extension is
+not recognized, the changelog will be rendered in Markdown format, unless the
+:ref:`config-changelog-default_templates-output_format` setting is set.
+
 If you are using the ``template_dir`` setting for providing customized templates,
 this setting is not used. See :ref:`config-changelog-template_dir` for more information.
 
 **Default:** ``"CHANGELOG.md"``
+
+----
+
+.. _config-changelog-default_templates:
+
+``default_templates``
+*********************
+
+.. note::
+    This section of the configuration contains options which customize or modify
+    the default changelog templates included with PSR.
+
+    **pyproject.toml:** ``[tool.semantic_release.changelog.default_templates]``
+
+    **releaserc.toml:** ``[semantic_release.changelog.default_templates]``
+
+    **releaserc.json:** ``{ "semantic_release": { "changelog": { "default_templates": {} } } }``
+
+----
+
+.. _config-changelog-default_templates-changelog_file:
+
+``changelog_file``
+''''''''''''''''''
+
+*Introduced in v9.11.0.*
+
+**Type:** ``str``
+
+Specify the name of the changelog file that will be created. This file will be created
+or overwritten (if it previously exists) with the rendered default template included
+with Python Semantic Release.
+
+Depending on the file extension of this setting, the changelog will be rendered in the
+format designated by the extension. PSR, as of v9.11.0, provides a default changelog template
+in both Markdown (``.md``) and reStructuredText (``.rst``) formats. If the file extension is
+not recognized, the changelog will be rendered in Markdown format, unless the
+:ref:`config-changelog-default_templates-output_format` setting is set.
+
+If you are using the ``template_dir`` setting for providing customized templates,
+this setting is not used. See :ref:`config-changelog-template_dir` for more information.
+
+**Default:** ``"CHANGELOG.md"``
+
+----
+
+.. _config-changelog-default_templates-mask_initial_release:
+
+``mask_initial_release``
+''''''''''''''''''''''''
+
+*Introduced in v9.14.0*
+
+**Type:** ``bool``
+
+This option toggles the behavior of the changelog and release note templates to mask
+the release details specifically for the first release. When set to ``true``, the
+first version release notes will be masked with a generic message as opposed to the
+usual commit details.  When set to ``false``, the release notes will be generated as
+normal.
+
+The reason for this setting is to improve clarity to your audience. It conceptually
+does **NOT** make sense to have a list of changes (i.e. a Changelog) for the first release
+since nothing has been published yet, therefore in the eyes of your consumers what change
+is there to document?
+
+The message details can be found in the ``first_release.md.j2`` and ``first_release.rst.j2``
+templates of the default changelog template directory.
+
+**Default:** ``false``
+
+.. seealso::
+   - :ref:`changelog-templates-default_changelog`
+
+----
+
+.. _config-changelog-default_templates-output_format:
+
+``output_format``
+'''''''''''''''''
+
+*Introduced in v9.10.0*
+
+**Type:** ``Literal["md", "rst"]``
+
+This setting is used to specify the output format the default changelog template
+will use when rendering the changelog. PSR supports both Markdown (``md``) and
+reStructuredText (``rst``) formats.
+
+This setting will take presendence over the file extension of the
+:ref:`config-changelog-default_templates-changelog_file` setting. If this setting is
+omitted, the file extension of the :ref:`config-changelog-default_templates-changelog_file`
+setting will be used to determine the output format. If the file extension is not recognized,
+the output format will default to Markdown.
+
+**Default:** ``"md"``
+
+.. seealso::
+   - :ref:`config-changelog-default_templates-changelog_file`
 
 ----
 
@@ -337,7 +451,7 @@ Semantic Release will attempt to dynamically import this string, which should
 represent a path to a suitable callable that satisfies the following:
 
     As of Jinja 2.4 this can also be a callable that is passed the template name
-    and has to return ``True`` or ``False`` depending on autoescape should be
+    and has to return ``true`` or ``false`` depending on autoescape should be
     enabled by default.
 
 The result of this dynamic import is passed directly to the `jinja2.Environment`_
@@ -346,7 +460,7 @@ constructor.
 If this setting is a boolean, it is passed directly to the `jinja2.Environment`_
 constructor.
 
-**Default:** ``true``
+**Default:** ``false``
 
 ----
 
@@ -538,6 +652,72 @@ The patterns in this list are treated as regular expressions.
 
 ----
 
+.. _config-changelog-mode:
+
+``mode``
+********
+
+*Introduced in v9.10.0*
+
+**Type:** ``Literal["init", "update"]``
+
+This setting is a flag that is ultimately passed into the changelog context environment. It sets
+the value of ``context.changelog_mode`` to a string value of either ``init`` or ``update``.
+
+When used with the provided changelog template, it will determine the behavior of how the changelog
+is written. When the mode is set to ``init``, the changelog file will be written from scratch,
+overwriting any existing changelog file. This is the ``v8`` and ``v9`` default behavior.
+
+When the mode is set to ``update``, the changelog file will look for the ``insertion_flag`` value
+in the changelog file (defined by :ref:`config-changelog-changelog_file`) and insert the new
+version information at that location.
+
+If you are using a custom template directory, the `context.changelog_mode` value will exist in the
+changelog context but it is up to your implementation to determine if and/or how to use it.
+
+**Default:** ``init``
+
+.. seealso::
+   - :ref:`changelog-templates-default_changelog`
+
+----
+
+.. _config-changelog-insertion_flag:
+
+``insertion_flag``
+******************
+
+*Introduced in v9.10.0*
+
+**Type:** ``str``
+
+A string that will be used to identify where the new version should be inserted into the
+changelog file (as defined by :ref:`config-changelog-changelog_file`) when the changelog mode
+is set to ``update``.
+
+When the changelog mode is set to ``init``, this string will be included as part of the
+header of the changelog file to initialize the changelog with a format that will be condusive
+for future version insertions.
+
+If you modify this value in your config, you will need to manually update any saved changelog
+file to match the new insertion flag if you use the ``update`` mode.  In ``init`` mode, the
+changelog file will be overwritten as normal.
+
+In v9.11.0, the ``insertion_flag`` default value became more dynamic with the introduction of
+an reStructuredText template. The default value will be set depending on the
+:ref:`config-changelog-default_templates-output_format` setting. The default flag values are:
+
+==================  =========================
+Output Format       Default Insertion Flag
+==================  =========================
+Markdown (``md``)   ``<!-- version list -->``
+reStructuredText    ``..\n    version list``
+==================  =========================
+
+**Default:** various, see above
+
+----
+
 .. _config-changelog-template_dir:
 
 ``template_dir``
@@ -575,7 +755,7 @@ Author used in commits in the format ``name <email>``.
   ``git_committer_name`` and ``git_committer_email`` inputs.
 
 .. seealso::
-   - :ref:`github-actions`
+   - :ref:`gh_actions`
 
 **Default:** ``semantic-release <semantic-release>``
 
@@ -610,13 +790,13 @@ Specify which commit parser Python Semantic Release should use to parse the comm
 within the Git repository.
 
 Built-in parsers:
-    * ``angular`` - :ref:`AngularCommitParser <commit-parser-angular>`
-    * ``emoji`` - :ref:`EmojiCommitParser <commit-parser-emoji>`
-    * ``scipy`` - :ref:`ScipyCommitParser <commit-parser-scipy>`
-    * ``tag`` - :ref:`TagCommitParser <commit-parser-tag>`
+    * ``angular`` - :ref:`AngularCommitParser <commit_parser-builtin-angular>`
+    * ``emoji`` - :ref:`EmojiCommitParser <commit_parser-builtin-emoji>`
+    * ``scipy`` - :ref:`ScipyCommitParser <commit_parser-builtin-scipy>`
+    * ``tag`` - :ref:`TagCommitParser <commit_parser-builtin-tag>` *(deprecated in v9.12.0)*
 
 You can set any of the built-in parsers by their keyword but you can also specify
-your own commit parser in ``module:attr`` form.
+your own commit parser in ``path/to/module_file.py:Class`` or ``module:Class`` form.
 
 For more information see :ref:`commit-parsing`.
 
@@ -745,6 +925,8 @@ When :ref:`config-allow_zero_version` is set to ``false``, this setting is ignor
 ``no_git_verify``
 """""""""""""""""
 
+*Introduced in v9.8.0*
+
 **Type:** ``bool``
 
 This flag is passed along to ``git`` upon performing a ``git commit`` during :ref:`cmd-version`.
@@ -851,7 +1033,7 @@ as ``bitbucket.org``, and ``github.com``.
 
 Including the protocol schemes, such as ``https://``, for the API domain is optional.
 Secure ``HTTPS`` connections are assumed unless the setting of
-:ref:`remote.insecure <config-remote-insecure>` is ``True``.
+:ref:`remote.insecure <config-remote-insecure>` is ``true``.
 
 **Default:** ``None``
 
@@ -875,7 +1057,7 @@ For example, when ``remote.type="github"`` is specified the default domain of
 
 Including the protocol schemes, such as ``https://``, for the domain value is optional.
 Secure ``HTTPS`` connections are assumed unless the setting of
-:ref:`remote.insecure <config-remote-insecure>` is ``True``.
+:ref:`remote.insecure <config-remote-insecure>` is ``true``.
 
 This setting also supports reading from an environment variable for ease-of-use
 in CI pipelines. See :ref:`Environment Variable <config-environment-variables>` for
@@ -899,11 +1081,11 @@ variable when ``remote.domain`` is not specified.
 
 **Type:** ``bool``
 
-If set to ``True``, ignore the authentication token when pushing changes to the remote.
+If set to ``true``, ignore the authentication token when pushing changes to the remote.
 This is ideal, for example, if you already have SSH keys set up which can be used for
 pushing.
 
-**Default:** ``False``
+**Default:** ``false``
 
 ----
 
@@ -912,11 +1094,13 @@ pushing.
 ``insecure``
 ************
 
+*Introduced in v9.4.2*
+
 **Type:** ``bool``
 
 Insecure is used to allow non-secure ``HTTP`` connections to your HVCS server. If set to
-``True``, any domain value passed will assume ``http://`` if it is not specified and allow
-it. When set to ``False`` (implicitly or explicitly), it will force ``https://`` communications.
+``true``, any domain value passed will assume ``http://`` if it is not specified and allow
+it. When set to ``false`` (implicitly or explicitly), it will force ``https://`` communications.
 
 When a custom ``domain`` or ``api_domain`` is provided as a configuration, this flag governs
 the protocol scheme used for those connections. If the protocol scheme is not provided in
@@ -928,7 +1112,7 @@ The purpose of this flag is to prevent any typos in provided ``domain`` and ``ap
 values that accidently specify an insecure connection but allow users to toggle the protection
 scheme off when desired.
 
-**Default:** ``False``
+**Default:** ``false``
 
 ----
 
@@ -1098,8 +1282,37 @@ specified in ``file:variable`` format. For example:
 
     [semantic_release]
     version_variables = [
-        "semantic_release/__init__.py:__version__",
+        "src/semantic_release/__init__.py:__version__",
         "docs/conf.py:version",
     ]
+
+Each version variable will be transformed into a Regular Expression that will be used
+to substitute the version number in the file. The replacement algorithm is **ONLY** a
+pattern match and replace. It will **NOT** evaluate the code nor will PSR understand
+any internal object structures (ie. ``file:object.version`` will not work).
+
+.. important::
+    The Regular Expression expects a version value to exist in the file to be replaced.
+    It cannot be an empty string or a non-semver compliant string. If this is the very
+    first time you are using PSR, we recommend you set the version to ``0.0.0``. This
+    may become more flexible in the future with resolution of issue `#941`_.
+
+.. _#941: https://github.com/python-semantic-release/python-semantic-release/issues/941
+
+Given the pattern matching nature of this feature, the Regular Expression is able to
+support most file formats as a variable declaration in most languages is very similar.
+We specifically support Python, YAML, and JSON as these have been the most common
+requests. This configuration option will also work regardless of file extension
+because its only a pattern match.
+
+.. note::
+    This will also work for TOML but we recommend using :ref:`config-version_toml` for
+    TOML files as it actually will interpret the TOML file and replace the version
+    number before writing the file back to disk.
+
+.. warning::
+    If the file (ex. JSON) you are replacing has two of the same variable name in it,
+    this pattern match will not be able to differentiate between the two and will replace
+    both. This is a limitation of the pattern matching and not a bug.
 
 **Default:** ``[]``

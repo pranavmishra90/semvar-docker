@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+import shutil
+import sys
+from pathlib import Path
+from re import compile as regexp
 from typing import TYPE_CHECKING
 from unittest import mock
 
@@ -9,6 +14,9 @@ from pydantic import RootModel, ValidationError
 
 import semantic_release
 from semantic_release.cli.config import (
+    BranchConfig,
+    ChangelogConfig,
+    ChangelogOutputFormat,
     GlobalCommandLineOptions,
     HvcsClient,
     RawConfig,
@@ -23,7 +31,7 @@ from semantic_release.const import DEFAULT_COMMIT_AUTHOR
 from semantic_release.enums import LevelBump
 from semantic_release.errors import ParserLoadError
 
-from tests.fixtures.repos import repo_with_no_tags_angular_commits
+from tests.fixtures.repos import repo_w_no_tags_angular_commits
 from tests.util import (
     CustomParserOpts,
     CustomParserWithNoOpts,
@@ -32,11 +40,10 @@ from tests.util import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from typing import Any
 
     from tests.fixtures.example_project import ExProjectDir, UpdatePyprojectTomlFn
-    from tests.fixtures.git_repo import BuildRepoFn
+    from tests.fixtures.git_repo import BuildRepoFn, CommitConvention
 
 
 @pytest.mark.parametrize(
@@ -75,7 +82,7 @@ def test_load_hvcs_default_token(
     remote_config: dict[str, Any],
     expected_token: str,
 ):
-    with mock.patch.dict("os.environ", patched_os_environ, clear=True):
+    with mock.patch.dict(os.environ, patched_os_environ, clear=True):
         raw_config = RawConfig.model_validate(
             {
                 "remote": remote_config,
@@ -176,7 +183,7 @@ def test_default_toml_config_valid(example_project_dir: ExProjectDir):
         ({"GIT_COMMIT_AUTHOR": "foo <foo>"}, "foo <foo>"),
     ],
 )
-@pytest.mark.usefixtures(repo_with_no_tags_angular_commits.__name__)
+@pytest.mark.usefixtures(repo_w_no_tags_angular_commits.__name__)
 def test_commit_author_configurable(
     example_pyproject_toml: Path,
     mock_env: dict[str, str],
@@ -185,7 +192,7 @@ def test_commit_author_configurable(
 ):
     content = tomlkit.loads(example_pyproject_toml.read_text(encoding="utf-8")).unwrap()
 
-    with mock.patch.dict("os.environ", mock_env):
+    with mock.patch.dict(os.environ, mock_env):
         raw = RawConfig.model_validate(content)
         runtime = RuntimeContext.from_raw_config(
             raw=raw,
@@ -221,27 +228,46 @@ def test_load_valid_runtime_config(
 @pytest.mark.parametrize(
     "commit_parser",
     [
+        # Module:Class string
         f"{CustomParserWithNoOpts.__module__}:{CustomParserWithNoOpts.__name__}",
         f"{CustomParserWithOpts.__module__}:{CustomParserWithOpts.__name__}",
+        # File path module:Class string
+        f"{CustomParserWithNoOpts.__module__.replace('.', '/')}.py:{CustomParserWithNoOpts.__name__}",
+        f"{CustomParserWithOpts.__module__.replace('.', '/')}.py:{CustomParserWithOpts.__name__}",
     ],
 )
 def test_load_valid_runtime_config_w_custom_parser(
-    commit_parser: str,
+    commit_parser: CommitConvention,
     build_configured_base_repo: BuildRepoFn,
     example_project_dir: ExProjectDir,
     example_pyproject_toml: Path,
     change_to_ex_proj_dir: None,
+    request: pytest.FixtureRequest,
 ):
+    fake_sys_modules = {**sys.modules}
+
+    if ".py" in commit_parser:
+        module_filepath = Path(commit_parser.split(":")[0])
+        module_filepath.parent.mkdir(parents=True, exist_ok=True)
+        module_filepath.parent.joinpath("__init__.py").touch()
+        shutil.copy(
+            src=str(request.config.rootpath / module_filepath),
+            dst=str(module_filepath),
+        )
+        fake_sys_modules.pop(
+            str(Path(module_filepath).with_suffix("")).replace(os.sep, ".")
+        )
+
     build_configured_base_repo(
         example_project_dir,
         commit_type=commit_parser,
     )
 
-    runtime_ctx = RuntimeContext.from_raw_config(
-        RawConfig.model_validate(load_raw_config_file(example_pyproject_toml)),
-        global_cli_options=GlobalCommandLineOptions(),
-    )
-    assert runtime_ctx
+    with mock.patch.dict(sys.modules, fake_sys_modules, clear=True):
+        assert RuntimeContext.from_raw_config(
+            RawConfig.model_validate(load_raw_config_file(example_pyproject_toml)),
+            global_cli_options=GlobalCommandLineOptions(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -253,6 +279,12 @@ def test_load_valid_runtime_config_w_custom_parser(
         f"{CustomParserWithOpts.__module__}:MissingCustomParser",
         # Incomplete class implementation
         f"{IncompleteCustomParser.__module__}:{IncompleteCustomParser.__name__}",
+        # Non-existant module file
+        "tests/missing_module.py:CustomParser",
+        # Non-existant class in module file
+        f"{CustomParserWithOpts.__module__.replace('.', '/')}.py:MissingCustomParser",
+        # Incomplete class implementation in module file
+        f"{IncompleteCustomParser.__module__.replace('.', '/')}.py:{IncompleteCustomParser.__name__}",
     ],
 )
 def test_load_invalid_custom_parser(
@@ -277,3 +309,107 @@ def test_load_invalid_custom_parser(
             RawConfig.model_validate(load_raw_config_file(example_pyproject_toml)),
             global_cli_options=GlobalCommandLineOptions(),
         )
+
+
+def test_branch_config_with_plain_wildcard():
+    branch_config = BranchConfig(
+        match="*",
+    )
+    assert branch_config.match == ".*"
+
+
+@pytest.mark.parametrize(
+    "invalid_regex",
+    [
+        "*abc",
+        "[a-z",
+        "(.+",
+        "{2,3}",
+        "a{3,2}",
+    ],
+)
+def test_branch_config_with_invalid_regex(invalid_regex: str):
+    with pytest.raises(ValidationError):
+        BranchConfig(
+            match=invalid_regex,
+        )
+
+
+@pytest.mark.parametrize(
+    "valid_patterns",
+    [
+        # Single entry
+        [r"chore(?:\([^)]*?\))?: .+"],
+        # Multiple entries
+        [r"^\d+\.\d+\.\d+", r"Initial [Cc]ommit.*"],
+    ],
+)
+def test_changelog_config_with_valid_exclude_commit_patterns(valid_patterns: list[str]):
+    assert ChangelogConfig.model_validate(
+        {
+            "exclude_commit_patterns": valid_patterns,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_patterns, index_of_invalid_pattern",
+    [
+        # Single entry, single incorrect
+        (["*abc"], 0),
+        # Two entries, second incorrect
+        ([".*", "[a-z"], 1),
+        # Two entries, first incorrect
+        (["(.+", ".*"], 0),
+    ],
+)
+def test_changelog_config_with_invalid_exclude_commit_patterns(
+    invalid_patterns: list[str],
+    index_of_invalid_pattern: int,
+):
+    with pytest.raises(
+        ValidationError,
+        match=regexp(
+            str.join(
+                "",
+                [
+                    r".*\bexclude_commit_patterns\[",
+                    str(index_of_invalid_pattern),
+                    r"\]: Invalid regular expression",
+                ],
+            ),
+        ),
+    ):
+        ChangelogConfig.model_validate(
+            {
+                "exclude_commit_patterns": invalid_patterns,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "output_format, insertion_flag",
+    [
+        (
+            ChangelogOutputFormat.MARKDOWN.value,
+            "<!-- version list -->",
+        ),
+        (
+            ChangelogOutputFormat.RESTRUCTURED_TEXT.value,
+            f"..{os.linesep}    version list",
+        ),
+    ],
+)
+def test_changelog_config_default_insertion_flag(
+    output_format: str,
+    insertion_flag: str,
+):
+    changelog_config = ChangelogConfig.model_validate(
+        {
+            "default_templates": {
+                "output_format": output_format,
+            }
+        }
+    )
+
+    assert changelog_config.insertion_flag == insertion_flag

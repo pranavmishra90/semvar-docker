@@ -1,36 +1,42 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import secrets
 import shutil
 import stat
 import string
 from contextlib import contextmanager, suppress
+from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Tuple
 
-from git import Repo
+from git import Git, Repo
 from pydantic.dataclasses import dataclass
 
-from semantic_release.changelog.context import make_changelog_context
+from semantic_release.changelog.context import ChangelogMode, make_changelog_context
 from semantic_release.changelog.release_history import ReleaseHistory
-from semantic_release.cli import config as cli_config_module
 from semantic_release.commit_parser._base import CommitParser, ParserOptions
-from semantic_release.commit_parser.token import ParsedCommit, ParseResult
+from semantic_release.commit_parser.angular import AngularCommitParser
+from semantic_release.commit_parser.token import (
+    ParsedCommit,
+    ParsedMessageResult,
+    ParseError,
+    ParseResult,
+)
 from semantic_release.enums import LevelBump
 
 from tests.const import SUCCESS_EXIT_CODE
 
 if TYPE_CHECKING:
     import filecmp
-    from pathlib import Path
     from typing import Any, Callable, Generator, Iterable, TypeVar
 
     try:
-        from typing import TypeAlias
-    except ImportError:
-        # for python 3.8 and 3.9
+        # Python 3.8 and 3.9 compatibility
         from typing_extensions import TypeAlias
+    except ImportError:
+        from typing import TypeAlias  # type: ignore[attr-defined, no-redef]
 
     from unittest.mock import MagicMock
 
@@ -38,11 +44,14 @@ if TYPE_CHECKING:
     from git import Commit
 
     from semantic_release.cli.config import RuntimeContext
-    from semantic_release.commit_parser.token import ParseError
 
     _R = TypeVar("_R")
 
-    GitCommandWrapperType: TypeAlias = cli_config_module.Repo.GitCommandWrapperType
+    GitCommandWrapperType: TypeAlias = Git
+
+
+def get_func_qual_name(func: Callable) -> str:
+    return str.join(".", filter(None, [func.__module__, func.__qualname__]))
 
 
 def assert_exit_code(
@@ -51,7 +60,7 @@ def assert_exit_code(
     if result.exit_code != exit_code:
         raise AssertionError(
             str.join(
-                "\n",
+                os.linesep,
                 [
                     f"{result.exit_code} != {exit_code} (actual != expected)",
                     "",
@@ -118,6 +127,13 @@ def remove_dir_tree(directory: Path | str = ".", force: bool = False) -> None:
         shutil.rmtree(str(directory), onerror=on_read_only_error if force else None)
 
 
+def dynamic_python_import(file_path: Path, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, str(file_path))
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
 @contextmanager
 def temporary_working_directory(directory: Path | str) -> Generator[None, None, None]:
     cwd = os.getcwd()
@@ -135,9 +151,14 @@ def shortuid(length: int = 8) -> str:
 
 
 def add_text_to_file(repo: Repo, filename: str, text: str | None = None):
-    with open(f"{repo.working_tree_dir}/{filename}", "a+") as f:
-        f.write(text or f"default text {shortuid(12)}")
-        f.write("\n")
+    """Makes a deterministic file change for testing"""
+    tgt_file = Path(repo.working_tree_dir or ".") / filename
+    tgt_file.parent.mkdir(parents=True, exist_ok=True)
+    file_contents = tgt_file.read_text() if tgt_file.exists() else ""
+    line_number = len(file_contents.splitlines())
+
+    file_contents += f"{line_number}  {text or 'default text'}{os.linesep}"
+    tgt_file.write_text(file_contents, encoding="utf-8")
 
     repo.index.add(filename)
 
@@ -175,15 +196,22 @@ def actions_output_to_dict(output: str) -> dict[str, str]:
 
 def get_release_history_from_context(runtime_context: RuntimeContext) -> ReleaseHistory:
     with Repo(str(runtime_context.repo_dir)) as git_repo:
-        rh = ReleaseHistory.from_git_history(
+        release_history = ReleaseHistory.from_git_history(
             git_repo,
             runtime_context.version_translator,
             runtime_context.commit_parser,
             runtime_context.changelog_excluded_commit_patterns,
         )
-    changelog_context = make_changelog_context(runtime_context.hvcs_client, rh)
+    changelog_context = make_changelog_context(
+        hvcs_client=runtime_context.hvcs_client,
+        release_history=release_history,
+        mode=ChangelogMode.INIT,
+        prev_changelog_file=Path("CHANGELOG.md"),
+        insertion_flag="",
+        mask_initial_release=runtime_context.changelog_mask_initial_release,
+    )
     changelog_context.bind_to_environment(runtime_context.template_environment)
-    return rh
+    return release_history
 
 
 def prepare_mocked_git_command_wrapper_type(
@@ -214,7 +242,7 @@ def prepare_mocked_git_command_wrapper_type(
     >>> mocked_push.assert_called_once()
     """
 
-    class MockGitCommandWrapperType(cli_config_module.Repo.GitCommandWrapperType):
+    class MockGitCommandWrapperType(Git):
         def __getattr__(self, name: str) -> Any:
             try:
                 return object.__getattribute__(self, f"mocked_{name}")
@@ -259,3 +287,21 @@ class CustomParserWithOpts(CommitParser[ParseResult, CustomParserOpts]):
 
 class IncompleteCustomParser(CommitParser):
     pass
+
+
+class CustomAngularParserWithIgnorePatterns(AngularCommitParser):
+    def parse(self, commit: Commit) -> ParsedCommit | ParseError:
+        if not (parse_msg_result := super().parse_message(str(commit.message))):
+            return ParseError(commit, "Unable to parse commit")
+
+        return ParsedCommit.from_parsed_message_result(
+            commit,
+            ParsedMessageResult(
+                **{
+                    **parse_msg_result._asdict(),
+                    "include_in_changelog": bool(
+                        not str(commit.message).startswith("chore")
+                    ),
+                }
+            ),
+        )
