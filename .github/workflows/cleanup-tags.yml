@@ -1,0 +1,48 @@
+name: Cleanup upstream tags
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+  
+
+jobs:
+  delete-rc-tags:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Ensure all tags are fetched
+
+      - name: List and Delete Upstream tags
+        id: list_tags
+        run: |
+          echo "Searching for tags containing 'v9'..."
+          TAGS=$(git tag --list "*v9*")
+          echo "Found tags:"
+          echo "$TAGS"
+          if [ -z "$TAGS" ]; then
+            echo "No tags containing 'v9' found."
+            echo "tags_to_delete=" > tags.log
+          else
+            echo "tags_to_delete=$TAGS" > tags.log
+
+            echo "Deleting local tags..."
+            echo $TAGS | xargs -n 1 git tag -d
+
+            echo "Deleting remote tags..."
+            for TAG in $TAGS; do
+              git push origin --delete $TAG || echo "Failed to delete $TAG from remote."
+            done
+          fi
+
+      - name: Success Message
+        run: |
+          echo "Completed deleting all tags containing 'v9'."
