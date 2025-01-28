@@ -3,9 +3,6 @@ name: SemVar with Docker
 
 description: Automated Releases via SemVer and Commit Message Conventions
 
-branding:
-  color: orange
-
 inputs:
   root_options:
     default: "-v"
@@ -128,4 +125,4 @@ outputs:
 runs:
   using: docker
   # image: Dockerfile
-  image: pranavmishra90/semvar:latest
+  image: docker://ghcr.io/pranavmishra90/semvar-docker:main
