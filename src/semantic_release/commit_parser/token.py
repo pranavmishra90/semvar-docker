@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, TypeVar, Union
 
+from semantic_release.commit_parser.util import force_str
 from semantic_release.errors import CommitParseError
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -27,6 +28,7 @@ class ParsedMessageResult(NamedTuple):
     scope: str
     descriptions: tuple[str, ...]
     breaking_descriptions: tuple[str, ...] = ()
+    release_notices: tuple[str, ...] = ()
     linked_issues: tuple[str, ...] = ()
     linked_merge_request: str = ""
     include_in_changelog: bool = True
@@ -74,6 +76,14 @@ class ParsedCommit(NamedTuple):
     commit: Commit
     """The original commit object (a class defined by GitPython) that was parsed"""
 
+    release_notices: tuple[str, ...] = ()
+    """
+    A tuple of release notices, which are additional information about the changes that affect the user.
+
+    An example would be a paragraph which begins with the text ``NOTICE:`` in the commit message but
+    the parser generally strips the prefix and includes the rest of the paragraph in this list.
+    """
+
     linked_issues: tuple[str, ...] = ()
     """
     A tuple of issue numbers as strings, if the commit is contains issue references.
@@ -109,9 +119,7 @@ class ParsedCommit(NamedTuple):
 
         If the message is of type ``bytes`` then it will be decoded to a ``UTF-8`` string.
         """
-        m = self.commit.message
-        message_str = m.decode("utf-8") if isinstance(m, bytes) else m
-        return message_str.replace("\r", "")
+        return force_str(self.commit.message).replace("\r", "")
 
     @property
     def hexsha(self) -> str:
@@ -132,6 +140,9 @@ class ParsedCommit(NamedTuple):
         """An alias to the linked_merge_request attribute."""
         return self.linked_merge_request
 
+    def is_merge_commit(self) -> bool:
+        return bool(len(self.commit.parents) > 1)
+
     @staticmethod
     def from_parsed_message_result(
         commit: Commit, parsed_message_result: ParsedMessageResult
@@ -145,6 +156,7 @@ class ParsedCommit(NamedTuple):
             descriptions=list(parsed_message_result.descriptions),
             breaking_descriptions=list(parsed_message_result.breaking_descriptions),
             commit=commit,
+            release_notices=parsed_message_result.release_notices,
             linked_issues=parsed_message_result.linked_issues,
             linked_merge_request=parsed_message_result.linked_merge_request,
             include_in_changelog=parsed_message_result.include_in_changelog,
@@ -170,9 +182,7 @@ class ParseError(NamedTuple):
 
         If the message is of type ``bytes`` then it will be decoded to a ``UTF-8`` string.
         """
-        m = self.commit.message
-        message_str = m.decode("utf-8") if isinstance(m, bytes) else m
-        return message_str.replace("\r", "")
+        return force_str(self.commit.message).replace("\r", "")
 
     @property
     def hexsha(self) -> str:
@@ -187,6 +197,9 @@ class ParseError(NamedTuple):
     def short_hash(self) -> str:
         """A short representation of the hash value (in hex) of the commit."""
         return self.hexsha[:7]
+
+    def is_merge_commit(self) -> bool:
+        return bool(len(self.commit.parents) > 1)
 
     def raise_error(self) -> NoReturn:
         """A convience method to raise a CommitParseError with the error message."""

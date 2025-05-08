@@ -13,7 +13,7 @@ from importlib_resources import files
 
 import semantic_release
 from semantic_release.commit_parser import (
-    AngularCommitParser,
+    ConventionalCommitParser,
     EmojiCommitParser,
     ScipyCommitParser,
 )
@@ -414,7 +414,11 @@ def update_pyproject_toml(pyproject_toml_file: Path) -> UpdatePyprojectTomlFn:
             if pointer.get(part, None) is None:
                 pointer.add(part, tomlkit.table())
             pointer = pointer.get(part, {})
-        pointer.update(new_setting)
+
+        if value is None:
+            pointer.pop(new_setting_key)
+        else:
+            pointer.update(new_setting)
 
         with open(cwd_pyproject_toml, "w") as wfd:
             tomlkit.dump(pyproject_toml, wfd)
@@ -448,17 +452,17 @@ def set_allow_zero_version(update_pyproject_toml: UpdatePyprojectTomlFn) -> SetF
 
 
 @pytest.fixture(scope="session")
-def use_angular_parser(
+def use_conventional_parser(
     update_pyproject_toml: UpdatePyprojectTomlFn,
     pyproject_toml_config_option_parser: str,
 ) -> UseParserFn:
-    """Modify the configuration file to use the Angular parser."""
+    """Modify the configuration file to use the Conventional parser."""
 
-    def _use_angular_parser() -> type[CommitParser]:
-        update_pyproject_toml(pyproject_toml_config_option_parser, "angular")
-        return AngularCommitParser
+    def _use_conventional_parser() -> type[CommitParser]:
+        update_pyproject_toml(pyproject_toml_config_option_parser, "conventional")
+        return ConventionalCommitParser
 
-    return _use_angular_parser
+    return _use_conventional_parser
 
 
 @pytest.fixture(scope="session")

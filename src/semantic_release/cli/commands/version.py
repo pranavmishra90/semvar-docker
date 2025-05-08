@@ -39,12 +39,12 @@ from semantic_release.version.translator import VersionTranslator
 
 if TYPE_CHECKING:  # pragma: no cover
     from pathlib import Path
-    from typing import Iterable, Mapping
+    from typing import Mapping, Sequence
 
     from git.refs.tag import Tag
 
     from semantic_release.cli.cli_context import CliContextObj
-    from semantic_release.version.declaration import VersionDeclarationABC
+    from semantic_release.version.declaration import IVersionReplacer
     from semantic_release.version.version import Version
 
 
@@ -65,7 +65,7 @@ def is_forced_prerelease(
     log.debug(
         "%s: %s",
         is_forced_prerelease.__name__,
-        ", ".join(f"{k} = {v}" for k, v in local_vars),
+        str.join(", ", iter(f"{k} = {v}" for k, v in local_vars)),
     )
     return (
         as_prerelease
@@ -135,28 +135,43 @@ def version_from_forced_level(
 
 def apply_version_to_source_files(
     repo_dir: Path,
-    version_declarations: Iterable[VersionDeclarationABC],
+    version_declarations: Sequence[IVersionReplacer],
     version: Version,
     noop: bool = False,
 ) -> list[str]:
-    paths = [
-        str(declaration.path.resolve().relative_to(repo_dir))
-        for declaration in version_declarations
+    if len(version_declarations) < 1:
+        return []
+
+    if not noop:
+        log.debug("Updating version %s in repository files...", version)
+
+    paths = list(
+        map(
+            lambda decl, new_version=version, noop=noop: (  # type: ignore[misc]
+                decl.update_file_w_version(new_version=new_version, noop=noop)
+            ),
+            version_declarations,
+        )
+    )
+
+    repo_filepaths = [
+        str(updated_file.relative_to(repo_dir))
+        for updated_file in paths
+        if updated_file is not None
     ]
 
     if noop:
         noop_report(
-            "would have updated versions in the following paths:"
-            + "".join(f"\n    {path}" for path in paths)
+            str.join(
+                "",
+                [
+                    "would have updated versions in the following paths:",
+                    *[f"\n    {filepath}" for filepath in repo_filepaths],
+                ],
+            )
         )
-        return paths
 
-    log.debug("writing version %s to source paths %s", version, paths)
-    for declaration in version_declarations:
-        new_content = declaration.replace(new_version=version)
-        declaration.path.write_text(new_content)
-
-    return paths
+    return repo_filepaths
 
 
 def shell(
@@ -699,13 +714,31 @@ def version(  # noqa: C901
         log.info("Remote does not support releases. Skipping release creation...")
         return
 
+    license_cfg = runtime.project_metadata.get(
+        "license-expression",
+        runtime.project_metadata.get(
+            "license",
+            "",
+        ),
+    )
+
+    if not isinstance(license_cfg, (str, dict)) or license_cfg is None:
+        license_cfg = ""
+
+    license_name = (
+        license_cfg.get("text", "")
+        if isinstance(license_cfg, dict)
+        else license_cfg or ""
+    )
+
     release_notes = generate_release_notes(
         hvcs_client,
-        release_history.released[new_version],
-        runtime.template_dir,
+        release=release_history.released[new_version],
+        template_dir=runtime.template_dir,
         history=release_history,
         style=runtime.changelog_style,
         mask_initial_release=runtime.changelog_mask_initial_release,
+        license_name=license_name,
     )
 
     exception: Exception | None = None

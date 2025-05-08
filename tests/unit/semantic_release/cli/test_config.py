@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from re import compile as regexp
 from typing import TYPE_CHECKING
 from unittest import mock
@@ -11,6 +11,7 @@ from unittest import mock
 import pytest
 import tomlkit
 from pydantic import RootModel, ValidationError
+from urllib3.util.url import parse_url
 
 import semantic_release
 from semantic_release.cli.config import (
@@ -21,9 +22,10 @@ from semantic_release.cli.config import (
     HvcsClient,
     RawConfig,
     RuntimeContext,
+    _known_hvcs,
 )
 from semantic_release.cli.util import load_raw_config_file
-from semantic_release.commit_parser.angular import AngularParserOptions
+from semantic_release.commit_parser.conventional import ConventionalCommitParserOptions
 from semantic_release.commit_parser.emoji import EmojiParserOptions
 from semantic_release.commit_parser.scipy import ScipyParserOptions
 from semantic_release.commit_parser.tag import TagParserOptions
@@ -31,7 +33,7 @@ from semantic_release.const import DEFAULT_COMMIT_AUTHOR
 from semantic_release.enums import LevelBump
 from semantic_release.errors import ParserLoadError
 
-from tests.fixtures.repos import repo_w_no_tags_angular_commits
+from tests.fixtures.repos import repo_w_no_tags_conventional_commits
 from tests.util import (
     CustomParserOpts,
     CustomParserWithNoOpts,
@@ -43,7 +45,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from tests.fixtures.example_project import ExProjectDir, UpdatePyprojectTomlFn
-    from tests.fixtures.git_repo import BuildRepoFn, CommitConvention
+    from tests.fixtures.git_repo import BuildRepoFn, BuiltRepoResult, CommitConvention
 
 
 @pytest.mark.parametrize(
@@ -108,9 +110,9 @@ def test_invalid_hvcs_type(remote_config: dict[str, Any]):
     [
         (
             None,
-            RootModel(AngularParserOptions()).model_dump(),
-        ),  # default not provided -> means angular
-        ("angular", RootModel(AngularParserOptions()).model_dump()),
+            RootModel(ConventionalCommitParserOptions()).model_dump(),
+        ),  # default not provided -> means conventional
+        ("conventional", RootModel(ConventionalCommitParserOptions()).model_dump()),
         ("emoji", RootModel(EmojiParserOptions()).model_dump()),
         ("scipy", RootModel(ScipyParserOptions()).model_dump()),
         ("tag", RootModel(TagParserOptions()).model_dump()),
@@ -140,7 +142,7 @@ def test_load_user_defined_parser_opts():
     }
     raw_config = RawConfig.model_validate(
         {
-            "commit_parser": "angular",
+            "commit_parser": "conventional",
             "commit_parser_options": user_defined_opts,
         }
     )
@@ -183,7 +185,7 @@ def test_default_toml_config_valid(example_project_dir: ExProjectDir):
         ({"GIT_COMMIT_AUTHOR": "foo <foo>"}, "foo <foo>"),
     ],
 )
-@pytest.mark.usefixtures(repo_w_no_tags_angular_commits.__name__)
+@pytest.mark.usefixtures(repo_w_no_tags_conventional_commits.__name__)
 def test_commit_author_configurable(
     example_pyproject_toml: Path,
     mock_env: dict[str, str],
@@ -413,3 +415,51 @@ def test_changelog_config_default_insertion_flag(
     )
 
     assert changelog_config.insertion_flag == insertion_flag
+
+
+@pytest.mark.parametrize(
+    "hvcs_type",
+    [k.value for k in _known_hvcs],
+)
+def test_git_remote_url_w_insteadof_alias(
+    repo_w_initial_commit: BuiltRepoResult,
+    example_pyproject_toml: Path,
+    example_git_https_url: str,
+    hvcs_type: str,
+    update_pyproject_toml: UpdatePyprojectTomlFn,
+):
+    expected_url = parse_url(example_git_https_url)
+    repo_name_suffix = PurePosixPath(expected_url.path or "").name
+    insteadof_alias = "psr_test_insteadof"
+    insteadof_value = expected_url.url.replace(repo_name_suffix, "")
+    repo = repo_w_initial_commit["repo"]
+
+    with repo.config_writer() as cfg:
+        # Setup: define the insteadOf replacement value
+        cfg.add_value(f'url "{insteadof_value}"', "insteadof", f"{insteadof_alias}:")
+
+        # Setup: set the remote URL with an insteadOf alias
+        cfg.set_value('remote "origin"', "url", f"{insteadof_alias}:{repo_name_suffix}")
+
+    # Setup: set each supported HVCS client type
+    update_pyproject_toml("tool.semantic_release.remote.type", hvcs_type)
+
+    # Act: load the configuration (in clear environment)
+    with mock.patch.dict(os.environ, {}, clear=True):
+        # Essentially the same as CliContextObj._init_runtime_ctx()
+        project_config = tomlkit.loads(
+            example_pyproject_toml.read_text(encoding="utf-8")
+        ).unwrap()
+
+        runtime = RuntimeContext.from_raw_config(
+            raw=RawConfig.model_validate(
+                project_config.get("tool", {}).get("semantic_release", {}),
+            ),
+            global_cli_options=GlobalCommandLineOptions(),
+        )
+
+        # Trigger a function that calls helpers.parse_git_url()
+        actual_url = runtime.hvcs_client.remote_url(use_token=False)
+
+    # Evaluate: the remote URL should be the full URL
+    assert expected_url.url == actual_url
