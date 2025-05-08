@@ -9,7 +9,9 @@ from git.objects.tag import TagObject
 
 from semantic_release.commit_parser import ParseError
 from semantic_release.commit_parser.token import ParsedCommit
+from semantic_release.commit_parser.util import force_str
 from semantic_release.enums import LevelBump
+from semantic_release.helpers import validate_types_in_sequence
 from semantic_release.version.algorithm import tags_and_versions
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -49,6 +51,12 @@ class ReleaseHistory:
             tag.commit.hexsha: (tag, version)
             for tag, version in all_git_tags_and_versions
         }
+
+        ignore_merge_commits = bool(
+            hasattr(commit_parser, "options")
+            and hasattr(commit_parser.options, "ignore_merge_commits")
+            and getattr(commit_parser.options, "ignore_merge_commits")  # noqa: B009
+        )
 
         # Strategy:
         # Loop through commits in history, parsing as we go.
@@ -102,75 +110,111 @@ class ReleaseHistory:
 
                 released.setdefault(the_version, release)
 
-            # mypy will be happy if we make this an explicit string
-            commit_message = str(commit.message)
-
             log.info(
                 "parsing commit [%s] %s",
                 commit.hexsha[:8],
-                commit_message.replace("\n", " ")[:54],
+                str(commit.message).replace("\n", " ")[:54],
             )
-            parse_result = commit_parser.parse(commit)
-            commit_type = (
-                "unknown" if isinstance(parse_result, ParseError) else parse_result.type
-            )
+            # returns a ParseResult or list of ParseResult objects,
+            # it is usually one, but we split a commit if a squashed merge is detected
+            parse_results = commit_parser.parse(commit)
 
-            has_exclusion_match = any(
-                pattern.match(commit_message) for pattern in exclude_commit_patterns
-            )
-
-            commit_level_bump = (
-                LevelBump.NO_RELEASE
-                if isinstance(parse_result, ParseError)
-                else parse_result.bump
-            )
-
-            # Skip excluded commits except for any commit causing a version bump
-            # Reasoning: if a commit causes a version bump, and no other commits
-            # are included, then the changelog will be empty. Even if ther was other
-            # commits included, the true reason for a version bump would be missing.
-            if has_exclusion_match and commit_level_bump == LevelBump.NO_RELEASE:
-                log.info(
-                    "Excluding commit [%s] %s",
-                    commit.hexsha[:8],
-                    commit_message.replace("\n", " ")[:50],
-                )
-                continue
-
-            if (
-                isinstance(parse_result, ParsedCommit)
-                and not parse_result.include_in_changelog
-            ):
-                log.info(
-                    str.join(
-                        " ",
-                        [
-                            "Excluding commit %s (%s) because parser determined",
-                            "it should not included in the changelog",
-                        ],
+            if not any(
+                (
+                    isinstance(parse_results, (ParseError, ParsedCommit)),
+                    (
+                        (
+                            isinstance(parse_results, list)
+                            or type(parse_results) == tuple
+                        )
+                        and validate_types_in_sequence(
+                            parse_results, (ParseError, ParsedCommit)
+                        )
                     ),
-                    commit.hexsha[:8],
-                    commit_message.replace("\n", " ")[:20],
                 )
-                continue
+            ):
+                raise TypeError("Unexpected type returned from commit_parser.parse")
 
-            if the_version is None:
+            results: list[ParseResult] = [
+                *(
+                    [parse_results]
+                    if isinstance(parse_results, (ParseError, ParsedCommit))
+                    else parse_results
+                ),
+            ]
+
+            is_squash_commit = bool(len(results) > 1)
+
+            # iterate through parsed commits to add to changelog definition
+            for parsed_result in results:
+                commit_message = force_str(parsed_result.commit.message)
+                commit_type = (
+                    "unknown"
+                    if isinstance(parsed_result, ParseError)
+                    else parsed_result.type
+                )
+                log.debug("commit has type '%s'", commit_type)
+
+                has_exclusion_match = any(
+                    pattern.match(commit_message) for pattern in exclude_commit_patterns
+                )
+
+                commit_level_bump = (
+                    LevelBump.NO_RELEASE
+                    if isinstance(parsed_result, ParseError)
+                    else parsed_result.bump
+                )
+
+                if ignore_merge_commits and parsed_result.is_merge_commit():
+                    log.info("Excluding merge commit[%s]", parsed_result.short_hash)
+                    continue
+
+                # Skip excluded commits except for any commit causing a version bump
+                # Reasoning: if a commit causes a version bump, and no other commits
+                # are included, then the changelog will be empty. Even if ther was other
+                # commits included, the true reason for a version bump would be missing.
+                if has_exclusion_match and commit_level_bump == LevelBump.NO_RELEASE:
+                    log.info(
+                        "Excluding %s commit[%s] %s",
+                        "piece of squashed" if is_squash_commit else "",
+                        parsed_result.short_hash,
+                        commit_message.split("\n", maxsplit=1)[0][:20],
+                    )
+                    continue
+
+                if (
+                    isinstance(parsed_result, ParsedCommit)
+                    and not parsed_result.include_in_changelog
+                ):
+                    log.info(
+                        str.join(
+                            " ",
+                            [
+                                "Excluding commit[%s] because parser determined",
+                                "it should not included in the changelog",
+                            ],
+                        ),
+                        parsed_result.short_hash,
+                    )
+                    continue
+
+                if the_version is None:
+                    log.info(
+                        "[Unreleased] adding commit[%s] to unreleased '%s'",
+                        parsed_result.short_hash,
+                        commit_type,
+                    )
+                    unreleased[commit_type].append(parsed_result)
+                    continue
+
                 log.info(
-                    "[Unreleased] adding '%s' commit(%s) to list",
-                    commit.hexsha[:8],
+                    "[%s] adding commit[%s] to release '%s'",
+                    the_version,
+                    parsed_result.short_hash,
                     commit_type,
                 )
-                unreleased[commit_type].append(parse_result)
-                continue
 
-            log.info(
-                "[%s] adding '%s' commit(%s) to release",
-                the_version,
-                commit_type,
-                commit.hexsha[:8],
-            )
-
-            released[the_version]["elements"][commit_type].append(parse_result)
+                released[the_version]["elements"][commit_type].append(parsed_result)
 
         return cls(unreleased=unreleased, released=released)
 

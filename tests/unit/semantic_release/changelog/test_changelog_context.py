@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from textwrap import dedent
 from typing import TYPE_CHECKING
+from unittest import mock
 
 import pytest
 from git import Commit, Object, Repo
@@ -484,6 +485,258 @@ def test_changelog_context_autofit_text_width_w_indent(
     env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
     context = make_changelog_context(
         hvcs_client=Gitlab(example_git_https_url),
+        release_history=artificial_release_history,
+        mode=ChangelogMode.UPDATE,
+        prev_changelog_file=changelog_md_file,
+        insertion_flag="",
+        mask_initial_release=False,
+    )
+    context.bind_to_environment(env)
+
+    # Create changelog from template with environment
+    actual_changelog = env.from_string(changelog_tpl).render()
+
+    # Evaluate
+    assert expected_changelog == actual_changelog
+
+
+def test_changelog_context_sort_numerically(
+    example_git_https_url: str,
+    artificial_release_history: ReleaseHistory,
+    changelog_md_file: Path,
+):
+    changelog_tpl = dedent(
+        """\
+        {{ [
+                ".. _#5: link",
+                ".. _PR#3: link",
+                ".. _PR#10: link",
+                ".. _#100: link"
+            ] | sort_numerically | join("\\n")
+        }}
+        """
+    )
+
+    expected_changelog = dedent(
+        """\
+        .. _#5: link
+        .. _#100: link
+        .. _PR#3: link
+        .. _PR#10: link
+        """
+    )
+
+    env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    context = make_changelog_context(
+        hvcs_client=Gitlab(example_git_https_url),
+        release_history=artificial_release_history,
+        mode=ChangelogMode.UPDATE,
+        prev_changelog_file=changelog_md_file,
+        insertion_flag="",
+        mask_initial_release=False,
+    )
+    context.bind_to_environment(env)
+
+    # Create changelog from template with environment
+    actual_changelog = env.from_string(changelog_tpl).render()
+
+    # Evaluate
+    assert expected_changelog == actual_changelog
+
+
+def test_changelog_context_sort_numerically_reverse(
+    example_git_https_url: str,
+    artificial_release_history: ReleaseHistory,
+    changelog_md_file: Path,
+):
+    changelog_tpl = dedent(
+        """\
+        {{ [
+                ".. _#5: link",
+                ".. _PR#3: link",
+                ".. _PR#10: link",
+                ".. _#100: link"
+            ] | sort_numerically(reverse=True) | join("\\n")
+        }}
+        """
+    )
+
+    expected_changelog = dedent(
+        """\
+        .. _#100: link
+        .. _#5: link
+        .. _PR#10: link
+        .. _PR#3: link
+        """
+    )
+
+    env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    context = make_changelog_context(
+        hvcs_client=Gitlab(example_git_https_url),
+        release_history=artificial_release_history,
+        mode=ChangelogMode.UPDATE,
+        prev_changelog_file=changelog_md_file,
+        insertion_flag="",
+        mask_initial_release=False,
+    )
+    context.bind_to_environment(env)
+
+    # Create changelog from template with environment
+    actual_changelog = env.from_string(changelog_tpl).render()
+
+    # Evaluate
+    assert expected_changelog == actual_changelog
+
+
+def test_changelog_context_pypi_url_filter(
+    example_git_https_url: str,
+    artificial_release_history: ReleaseHistory,
+    changelog_md_file: Path,
+):
+    changelog_tpl = dedent(
+        """\
+        {{ "example-package" | create_pypi_url }}
+        """
+    )
+
+    expected_changelog = dedent(
+        """\
+        https://pypi.org/project/example-package
+        """
+    )
+
+    env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    context = make_changelog_context(
+        hvcs_client=Gitlab(example_git_https_url),
+        release_history=artificial_release_history,
+        mode=ChangelogMode.UPDATE,
+        prev_changelog_file=changelog_md_file,
+        insertion_flag="",
+        mask_initial_release=False,
+    )
+    context.bind_to_environment(env)
+
+    # Create changelog from template with environment
+    actual_changelog = env.from_string(changelog_tpl).render()
+
+    # Evaluate
+    assert expected_changelog == actual_changelog
+
+
+def test_changelog_context_pypi_url_filter_tagged(
+    example_git_https_url: str,
+    artificial_release_history: ReleaseHistory,
+    changelog_md_file: Path,
+):
+    version = "1.0.0"
+    changelog_tpl = dedent(
+        """\
+        {%    set release = context.history.released.values() | first
+        %}{{
+              "example-package" | create_pypi_url(release.version | string)
+        }}
+        """
+    )
+
+    expected_changelog = dedent(
+        f"""\
+        https://pypi.org/project/example-package/{version}
+        """
+    )
+
+    env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    context = make_changelog_context(
+        hvcs_client=Gitlab(example_git_https_url),
+        release_history=artificial_release_history,
+        mode=ChangelogMode.UPDATE,
+        prev_changelog_file=changelog_md_file,
+        insertion_flag="",
+        mask_initial_release=False,
+    )
+    context.bind_to_environment(env)
+
+    # Create changelog from template with environment
+    actual_changelog = env.from_string(changelog_tpl).render()
+
+    # Evaluate
+    assert expected_changelog == actual_changelog
+
+
+@pytest.mark.parametrize("hvcs_client_class", [Github, Gitlab, Gitea])
+def test_changelog_context_release_url_filter(
+    example_git_https_url: str,
+    hvcs_client_class: type[Github | Gitlab | Gitea],
+    artificial_release_history: ReleaseHistory,
+    changelog_md_file: Path,
+):
+    version = list(artificial_release_history.released.keys())[-1]
+
+    changelog_tpl = dedent(
+        """\
+        {%      set release = context.history.released.values() | first
+        %}{{
+                "[%s](%s)" | format(
+                    release.version.as_tag(),
+                    release.version.as_tag() | create_release_url,
+                )
+        }}
+        """
+    )
+
+    with mock.patch.dict(os.environ, {}, clear=True):
+        hvcs_client = hvcs_client_class(remote_url=example_git_https_url)
+        expected_changelog = dedent(
+            f"""\
+            [{version.as_tag()}]({hvcs_client.create_release_url(version.as_tag())})
+            """
+        )
+
+    env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    context = make_changelog_context(
+        hvcs_client=hvcs_client,
+        release_history=artificial_release_history,
+        mode=ChangelogMode.UPDATE,
+        prev_changelog_file=changelog_md_file,
+        insertion_flag="",
+        mask_initial_release=False,
+    )
+    context.bind_to_environment(env)
+
+    # Create changelog from template with environment
+    actual_changelog = env.from_string(changelog_tpl).render()
+
+    # Evaluate
+    assert expected_changelog == actual_changelog
+
+
+@pytest.mark.parametrize("hvcs_client_class", [Github, Gitlab, Gitea, Bitbucket])
+def test_changelog_context_format_w_official_name_filter(
+    example_git_https_url: str,
+    hvcs_client_class: type[Github | Gitlab | Gitea],
+    artificial_release_history: ReleaseHistory,
+    changelog_md_file: Path,
+):
+    changelog_tpl = dedent(
+        """\
+        {{ "%s" | format_w_official_vcs_name }}
+        {{ "{}" | format_w_official_vcs_name }}
+        {{ "{vcs_name}" | format_w_official_vcs_name }}
+        """
+    )
+
+    with mock.patch.dict(os.environ, {}, clear=True):
+        hvcs_client = hvcs_client_class(remote_url=example_git_https_url)
+        expected_changelog = dedent(
+            f"""\
+            {hvcs_client.OFFICIAL_NAME}
+            {hvcs_client.OFFICIAL_NAME}
+            {hvcs_client.OFFICIAL_NAME}
+            """
+        )
+
+    env = environment(trim_blocks=True, lstrip_blocks=True, keep_trailing_newline=True)
+    context = make_changelog_context(
+        hvcs_client=hvcs_client,
         release_history=artificial_release_history,
         mode=ChangelogMode.UPDATE,
         prev_changelog_file=changelog_md_file,

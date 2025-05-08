@@ -88,9 +88,12 @@ environment variable is:
     default = "default value"
 
 In this structure:
+
   * ``env`` represents the environment variable that Python Semantic Release will search for
+
   * ``default_env`` is a fallback environment variable to read in case the variable specified
     by ``env`` is not set. This is optional - if not specified then no fallback will be used.
+
   * ``default`` is a default value to use in case the environment variable specified by ``env``
     is not set. This is optional - if ``default`` is not specified then the environment variable
     specified by ``env`` is considered required.
@@ -105,7 +108,7 @@ configuration setting. If there are type mis-matches, PSR will throw validation 
 If a setting is not provided, than PSR will fill in the value with the default value.
 
 Python Semantic Release expects a root level key to start the configuration definition. Make
-sure to use the correct root key dependending on the configuration format you are using.
+sure to use the correct root key depending on the configuration format you are using.
 
 .. note:: If you are using ``pyproject.toml``, this heading should include the ``tool`` prefix
           as specified within PEP 517, resulting in ``[tool.semantic_release]``.
@@ -405,7 +408,7 @@ This setting is used to specify the output format the default changelog template
 will use when rendering the changelog. PSR supports both Markdown (``md``) and
 reStructuredText (``rst``) formats.
 
-This setting will take presendence over the file extension of the
+This setting will take precedence over the file extension of the
 :ref:`config-changelog-default_templates-changelog_file` setting. If this setting is
 omitted, the file extension of the :ref:`config-changelog-default_templates-changelog_file`
 setting will be used to determine the output format. If the file extension is not recognized,
@@ -695,10 +698,6 @@ A string that will be used to identify where the new version should be inserted 
 changelog file (as defined by :ref:`config-changelog-changelog_file`) when the changelog mode
 is set to ``update``.
 
-When the changelog mode is set to ``init``, this string will be included as part of the
-header of the changelog file to initialize the changelog with a format that will be condusive
-for future version insertions.
-
 If you modify this value in your config, you will need to manually update any saved changelog
 file to match the new insertion flag if you use the ``update`` mode.  In ``init`` mode, the
 changelog file will be overwritten as normal.
@@ -790,7 +789,8 @@ Specify which commit parser Python Semantic Release should use to parse the comm
 within the Git repository.
 
 Built-in parsers:
-    * ``angular`` - :ref:`AngularCommitParser <commit_parser-builtin-angular>`
+    * ``angular`` - :ref:`AngularCommitParser <commit_parser-builtin-angular>` *(deprecated in v9.19.0)*
+    * ``conventional`` - :ref:`ConventionalCommitParser <commit_parser-builtin-conventional>` *(available in v9.19.0+)*
     * ``emoji`` - :ref:`EmojiCommitParser <commit_parser-builtin-emoji>`
     * ``scipy`` - :ref:`ScipyCommitParser <commit_parser-builtin-scipy>`
     * ``tag`` - :ref:`TagCommitParser <commit_parser-builtin-tag>` *(deprecated in v9.12.0)*
@@ -800,7 +800,7 @@ your own commit parser in ``path/to/module_file.py:Class`` or ``module:Class`` f
 
 For more information see :ref:`commit-parsing`.
 
-**Default:** ``"angular"``
+**Default:** ``"conventional"``
 
 ----
 
@@ -811,66 +811,14 @@ For more information see :ref:`commit-parsing`.
 
 **Type:** ``dict[str, Any]``
 
-These options are passed directly to the ``parser_options`` method of
-:ref:`the commit parser <config-commit_parser>`, without validation
-or transformation.
+This set of options are passed directly to the commit parser class specified in
+:ref:`the commit parser <config-commit_parser>` configuration option.
 
-For more information, see :ref:`commit-parsing-parser-options`.
-
-The default value for this setting depends on what you specify as
-:ref:`commit_parser <config-commit_parser>`. The table below outlines
-the expections from ``commit_parser`` value to default options value.
-
-==================  ==   =================================
-``commit_parser``        Default ``commit_parser_options``
-==================  ==   =================================
-``"angular"``       ->   .. code-block:: toml
-
-                             [semantic_release.commit_parser_options]
-                             allowed_types = [
-                                 "build", "chore", "ci", "docs", "feat", "fix",
-                                 "perf", "style", "refactor", "test"
-                             ]
-                             minor_types = ["feat"]
-                             patch_types = ["fix", "perf"]
-
-``"emoji"``         ->   .. code-block:: toml
-
-                             [semantic_release.commit_parser_options]
-                             major_tags = [":boom:"]
-                             minor_tags = [
-                                 ":sparkles:", ":children_crossing:", ":lipstick:",
-                                 ":iphone:", ":egg:", ":chart_with_upwards_trend:"
-                             ]
-                             patch_tags = [
-                                 ":ambulance:", ":lock:", ":bug:", ":zap:", ":goal_net:",
-                                 ":alien:", ":wheelchair:", ":speech_balloon:", ":mag:",
-                                 ":apple:", ":penguin:", ":checkered_flag:", ":robot:",
-                                 ":green_apple:"
-                             ]
-
-``"scipy"``         ->   .. code-block:: toml
-
-                             [semantic_release.commit_parser_options]
-                             allowed_tags = [
-                                "API", "DEP", "ENH", "REV", "BUG", "MAINT", "BENCH",
-                                "BLD", "DEV", "DOC", "STY", "TST", "REL", "FEAT", "TEST",
-                             ]
-                             major_tags = ["API",]
-                             minor_tags = ["DEP", "DEV", "ENH", "REV", "FEAT"]
-                             patch_tags = ["BLD", "BUG", "MAINT"]
-
-``"tag"``           ->   .. code-block:: toml
-
-                             [semantic_release.commit_parser_options]
-                             minor_tag = ":sparkles:"
-                             patch_tag = ":nut_and_bolt:"
-
-``"module:class"``  ->   ``**module:class.parser_options()``
-==================  ==   =================================
+For more information (to include defaults), see
+:ref:`commit_parser-builtin-customization`.
 
 **Default:** ``ParserOptions { ... }``, where ``...`` depends on
-:ref:`config-commit_parser` as indicated above.
+:ref:`commit_parser <config-commit_parser>`.
 
 ----
 
@@ -1016,7 +964,7 @@ calls rather than the primary domain (ex. ``api.github.com``).
 
 **Most on-premise HVCS installations will NOT use this setting!** Whether or not
 this value is used depends on the HVCS configured (and your server administration)
-in the :ref:`remote.type <config-remote-type>` setting and used in tadem with the
+in the :ref:`remote.type <config-remote-type>` setting and used in tandem with the
 :ref:`remote.domain <config-remote-domain>` setting.
 
 When using a custom :ref:`remote.domain <config-remote-domain>` and a HVCS
@@ -1109,7 +1057,7 @@ used for the connection. If the protocol scheme is provided in the field value, 
 match this setting or it will throw an error.
 
 The purpose of this flag is to prevent any typos in provided ``domain`` and ``api_domain``
-values that accidently specify an insecure connection but allow users to toggle the protection
+values that accidentally specify an insecure connection but allow users to toggle the protection
 scheme off when desired.
 
 **Default:** ``false``
@@ -1253,16 +1201,60 @@ Tags which do not match this format will not be considered as versions of your p
 
 **Type:** ``list[str]``
 
-Similar to :ref:`config-version_variables`, but allows the version number to be
-identified safely in a toml file like ``pyproject.toml``, with each entry using
-dotted notation to indicate the key for which the value represents the version:
+This configuration option is similar to :ref:`config-version_variables`, but it uses
+a TOML parser to interpret the data structure before, inserting the version. This
+allows users to use dot-notation to specify the version via the logical structure
+within the TOML file, which is more accurate than a pattern replace.
+
+The ``version_toml`` option is commonly used to update the version number in the project
+definition file: ``pyproject.toml`` as seen in the example below.
+
+As of v9.20.0, the ``version_toml`` option accepts a colon-separated definition
+with either 2 or 3 parts. The 2-part definition includes the file path and the version
+parameter (in dot-notation). Newly with v9.20.0, it also accepts an optional
+3rd part to allow configuration of the format type.
+
+**Available Format Types**
+
+- ``nf``: Number format (ex. ``1.2.3``)
+- ``tf``: :ref:`Tag Format <config-tag_format>` (ex. ``v1.2.3``)
+
+If the format type is not specified, it will default to the number format.
+
+**Example**
 
 .. code-block:: toml
 
     [semantic_release]
     version_toml = [
-        "pyproject.toml:tool.poetry.version",
+        # "file:variable:[format_type]"
+        "pyproject.toml:tool.poetry.version",  # Implied Default: Number format
+        "definition.toml:project.version:nf",  # Number format
+        "definition.toml:project.release:tf",  # Tag format
     ]
+
+This configuration will result in the following changes:
+
+.. code-block:: diff
+
+    diff a/pyproject.toml b/pyproject.toml
+
+      [tool.poetry]
+    - version = "0.1.0"
+    + version = "0.2.0"
+
+.. code-block:: diff
+
+    diff a/definition.toml b/definition.toml
+
+      [project]
+      name = "example"
+
+    - version = "0.1.0"
+    + version = "0.1.0"
+
+    - release = "v0.1.0"
+    + release = "v0.2.0"
 
 **Default:** ``[]``
 
@@ -1275,40 +1267,147 @@ dotted notation to indicate the key for which the value represents the version:
 
 **Type:** ``list[str]``
 
-Each entry represents a location where the version is stored in the source code,
-specified in ``file:variable`` format. For example:
+The ``version_variables`` configuration option is a list of string definitions
+that defines where the version number should be updated in the repository, when
+a new version is released.
+
+As of v9.20.0, the ``version_variables`` option accepts a
+colon-separated definition with either 2 or 3 parts. The 2-part definition includes
+the file path and the variable name. Newly with v9.20.0, it also accepts
+an optional 3rd part to allow configuration of the format type.
+
+**Available Format Types**
+
+- ``nf``: Number format (ex. ``1.2.3``)
+- ``tf``: :ref:`Tag Format <config-tag_format>` (ex. ``v1.2.3``)
+
+If the format type is not specified, it will default to the number format.
+
+Prior to v9.20.0, PSR only supports entries with the first 2-parts
+as the tag format type was not available and would only replace numeric
+version numbers.
+
+**Example**
 
 .. code-block:: toml
 
     [semantic_release]
+    tag_format = "v{version}"
     version_variables = [
-        "src/semantic_release/__init__.py:__version__",
-        "docs/conf.py:version",
+        # "file:variable:format_type"
+        "src/semantic_release/__init__.py:__version__",  # Implied Default: Number format
+        "docs/conf.py:version:nf",                       # Number format for sphinx docs
+        "kustomization.yml:newTag:tf",                   # Tag format
     ]
+
+First, the ``__version__`` variable in ``src/semantic_release/__init__.py`` will be updated
+with the next version using the `SemVer`_ number format.
+
+.. code-block:: diff
+
+    diff a/src/semantic_release/__init__.py b/src/semantic_release/__init__.py
+
+    - __version__ = "0.1.0"
+    + __version__ = "0.2.0"
+
+Then, the ``version`` variable in ``docs/conf.py`` will be updated with the next version
+with the next version using the `SemVer`_ number format because of the explicit ``nf``.
+
+.. code-block:: diff
+
+    diff a/docs/conf.py b/docs/conf.py
+
+    - version = "0.1.0"
+    + version = "0.2.0"
+
+Lastly, the ``newTag`` variable in ``kustomization.yml`` will be updated with the next version
+with the next version using the configured :ref:`config-tag_format` because the definition
+included ``tf``.
+
+.. code-block:: diff
+
+    diff a/kustomization.yml b/kustomization.yml
+
+      images:
+        - name: repo/image
+    -     newTag: v0.1.0
+    +     newTag: v0.2.0
+
+**How It works**
 
 Each version variable will be transformed into a Regular Expression that will be used
 to substitute the version number in the file. The replacement algorithm is **ONLY** a
 pattern match and replace. It will **NOT** evaluate the code nor will PSR understand
 any internal object structures (ie. ``file:object.version`` will not work).
 
-.. important::
-    The Regular Expression expects a version value to exist in the file to be replaced.
-    It cannot be an empty string or a non-semver compliant string. If this is the very
-    first time you are using PSR, we recommend you set the version to ``0.0.0``. This
-    may become more flexible in the future with resolution of issue `#941`_.
+The regular expression generated from the ``version_variables`` definition will:
 
-.. _#941: https://github.com/python-semantic-release/python-semantic-release/issues/941
+1. Look for the specified ``variable`` name in the ``file``. The variable name can be
+   enclosed by single (``'``) or double (``"``) quotation marks but they must match.
+
+2. The variable name defined by ``variable`` and the version must be separated by
+   an operand symbol (``=``, ``:``, ``:=``, or ``@``). Whitespace is optional around
+   the symbol.
+
+3. The value of the variable must match a `SemVer`_ regular expression and can be
+   enclosed by single (``'``) or double (``"``) quotation marks but they must match. However,
+   the enclosing quotes of the value do not have to match the quotes surrounding the variable
+   name.
+
+4. If the format type is set to ``tf`` then the variable value must have the matching prefix
+   and suffix of the :ref:`config-tag_format` setting around the `SemVer`_ version number.
 
 Given the pattern matching nature of this feature, the Regular Expression is able to
-support most file formats as a variable declaration in most languages is very similar.
-We specifically support Python, YAML, and JSON as these have been the most common
-requests. This configuration option will also work regardless of file extension
-because its only a pattern match.
+support most file formats because of the similarity of variable declaration across
+programming languages. PSR specifically supports Python, YAML, and JSON as these have
+been the most commonly requested formats. This configuration option will also work
+regardless of file extension because it looks for a matching pattern string.
 
 .. note::
     This will also work for TOML but we recommend using :ref:`config-version_toml` for
     TOML files as it actually will interpret the TOML file and replace the version
     number before writing the file back to disk.
+
+This is a comprehensive list (but not all variations) of examples where the following versions
+will be matched and replaced by the new version:
+
+.. code-block::
+
+    # Common variable declaration formats
+    version='1.2.3'
+    version = "1.2.3"
+    release = "v1.2.3"     # if tag_format is set
+
+    # YAML
+    version: 1.2.3
+
+    # JSON
+    "version": "1.2.3"
+
+    # NPM & GitHub Actions YAML
+    version@1.2.3
+    version@v1.2.3        # if tag_format is set
+
+    # Walrus Operator
+    version := "1.2.3"
+
+    # Excessive whitespace
+    version        =    '1.2.3'
+
+    # Mixed Quotes
+    "version" = '1.2.3'
+
+    # Custom Tag Format with tag_format set (monorepos)
+    __release__ = "module-v1.2.3"
+
+.. important::
+    The Regular Expression expects a version value to exist in the file to be replaced.
+    It cannot be an empty string or a non-semver compliant string. If this is the very
+    first time you are using PSR, we recommend you set the version to ``0.0.0``.
+
+    This may become more flexible in the future with resolution of issue `#941`_.
+
+.. _#941: https://github.com/python-semantic-release/python-semantic-release/issues/941
 
 .. warning::
     If the file (ex. JSON) you are replacing has two of the same variable name in it,
@@ -1316,3 +1415,5 @@ because its only a pattern match.
     both. This is a limitation of the pattern matching and not a bug.
 
 **Default:** ``[]``
+
+.. _SemVer: https://semver.org/

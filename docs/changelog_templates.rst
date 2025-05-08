@@ -49,7 +49,7 @@ PSR provides two default changelog output formats:
 Both formats are kept in sync with one another to display the equivalent information
 in the respective format. The default changelog template is located in the
 ``data/templates/`` directory within the PSR package. The templates are written in
-modular style (ie. multiple files) and during the render proccess are ultimately
+modular style (ie. multiple files) and during the render process are ultimately
 combined together to render the final changelog output. The rendering start point
 is the ``CHANGELOG.{FORMAT_EXT}.j2`` underneath the respective format directory.
 
@@ -71,8 +71,8 @@ A common and *highly-recommended* configuration option is the
 :ref:`changelog.exclude_commit_patterns <config-changelog-exclude_commit_patterns>`
 setting which allows the user to define regular expressions that will exclude commits
 from the changelog output. This is useful to filter out change messages that are not
-relevant to your external consumers (ex. ``ci`` and ``test`` in the angular commit
-convention) and only include the important changes that impact the consumer of your
+relevant to your external consumers (ex. ``ci`` and ``test`` in the conventional commit
+standard) and only include the important changes that impact the consumer of your
 software.
 
 Another important configuration option is the :ref:`changelog.mode <config-changelog-mode>`
@@ -144,7 +144,7 @@ newly created changelog file.
 
 .. tip::
     We have accomplished changelog updating through the use of the `Jinja`_ templating
-    and addtional context filters and context variables. This is notable because
+    and additional context filters and context variables. This is notable because
     in the case that you want to customize your changelog template, you now can use the
     same logic to enable changelog updates of your custom template!
 
@@ -228,7 +228,7 @@ Configuration Examples
           }
         }
 
-3.  Goal: Configure an initializing reStructuredText changelog with filtered angular
+3.  Goal: Configure an initializing reStructuredText changelog with filtered conventional
     commits patterns and merge commits within a custom config file ``releaserc.toml``.
 
     .. code:: toml
@@ -246,6 +246,11 @@ Configuration Examples
           '''Merged? .*''',
         ]
 
+If identified or supported by the parser, the default changelog templates will include
+a separate section of breaking changes and additional release information. Refer to the
+:ref:`commit parsing <commit-parsing>` section to see how to write commit messages that
+will be properly parsed and displayed in these sections.
+
 
 .. _changelog-templates-default_release_notes:
 
@@ -260,16 +265,37 @@ default built-in template out-of-the-box for generating release notes.
 
 The difference between the changelog and release notes is that the release notes
 only contain the changes for the current release. Due to the modularity of the
-PSR templates, the format is identical to an individual version of the default
-changelog.
+PSR templates, the format is similar to an individual version of the default
+changelog but may include other version specific information.
 
 At this time, the default template for version release notes is only available
 in Markdown format for all VCS types.
+
+If you want to review what the default release notes look like you can use the
+following command to print the release notes to the console (remove any configuration
+for defining a custom template directory):
+
+.. code:: console
+
+    # Create a current tag
+    git tag v1.0.0
+    semantic-release --noop changelog --post-to-release-tag v1.0.0
+
+The default template provided by PSR will respect the
+:ref:`config-changelog-default_templates-mask_initial_release` setting and
+will also add a comparison link to the previous release if one exists without
+customization.
+
+As of ``v9.18.0``, the default release notes will also include a statement to
+declare which license the project was released under. PSR determines which license
+to declare based on the value of ``project.license-expression`` in the ``pyproject.toml``
+file as defined in the `PEP 639`_ specification.
 
 .. seealso::
     - To personalize your release notes, see the
       :ref:`changelog-templates-custom_release_notes` section.
 
+.. _PEP 639: https://peps.python.org/pep-0639/
 
 .. _changelog-templates-template-rendering:
 
@@ -658,6 +684,45 @@ The filters provided vary based on the VCS configured and available features:
           )
       }}
 
+* ``create_pypi_url(package_name: str, version: str = "")``: given a package name and an optional
+  version, return a URL to the PyPI page for the package. If a version is provided, the URL will
+  point to the specific version page. If no version is provided, the URL will point to the package
+  page.
+
+  *Introduced in v9.18.0.*
+
+  **Example Usage:**
+
+  .. code:: jinja
+
+      {{ "example-package" | create_pypi_url }}
+      {{ "example-package" | create_pypi_url("1.0.0") }}
+
+  **Markdown Output:**
+
+  .. code:: markdown
+
+      https://pypi.org/project/example-package
+      https://pypi.org/project/example-package/1.0.0
+
+* ``create_release_url (Callable[[TagStr], UrlStr])``: given a tag, return a URL to the release
+  page on the remote vcs. This filter is useful when you want to link to the release page on the
+  remote vcs.
+
+  *Introduced in v9.18.0.*
+
+  **Example Usage:**
+
+  .. code:: jinja
+
+      {{ "v1.0.0" | create_release_url }}
+
+  **Markdown Output:**
+
+  .. code:: markdown
+
+      https://example.com/example/repo/releases/tag/v1.0.0
+
 * ``create_server_url (Callable[[PathStr, AuthStr | None, QueryStr | None, FragmentStr | None], UrlStr])``:
   when given a path, prepend the configured vcs server host and url scheme.  Optionally you
   can provide, a auth string, a query string or a url fragment to be normalized into the
@@ -817,6 +882,29 @@ The filters provided vary based on the VCS configured and available features:
 
       [#29](https://example.com/example/repo/pull/29)
 
+* ``format_w_official_vcs_name (Callable[[str], str])``: given a format string, insert
+  the official VCS type name into the string and return. This filter is useful when you want to
+  display the proper name of the VCS type in a changelog or release notes. The filter supports
+  three different replace formats: ``%s``, ``{}``, and ``{vcs_name}``.
+
+  *Introduced in v9.18.0.*
+
+  **Example Usage:**
+
+  .. code:: jinja
+
+      {{ "%s Releases" | format_w_official_vcs_name }}
+      {{ "{} Releases" | format_w_official_vcs_name }}
+      {{ "{vcs_name} Releases" | format_w_official_vcs_name }}
+
+  **Markdown Output:**
+
+  .. code:: markdown
+
+      GitHub Releases
+      GitHub Releases
+      GitHub Releases
+
 * ``read_file (Callable[[str], str])``: given a file path, read the file and
   return the contents as a string. This function was added specifically to
   enable the changelog update feature where it would load the existing changelog
@@ -831,22 +919,51 @@ The filters provided vary based on the VCS configured and available features:
       {% set prev_changelog_contents = prev_changelog_file | read_file | safe %}
 
 
+* ``sort_numerically (Callable[[Iterable[str], bool], list[str]])``: given a
+  sequence of strings with possibly some non-number characters as a prefix or suffix,
+  sort the strings as if they were just numbers from lowest to highest. This filter
+  is useful when you want to sort issue numbers or other strings that have a numeric
+  component in them but cannot be cast to a number directly to sort them. If you want
+  to sort the strings in reverse order, you can pass a boolean value of ``True`` as the
+  second argument.
+
+  *Introduced in v9.16.0.*
+
+  **Example Usage:**
+
+  .. code:: jinja
+
+      {{ ["#222", "#1023", "#444"] | sort_numerically }}
+      {{ ["#222", "#1023", "#444"] | sort_numerically(True) }}
+
+  **Markdown Output:**
+
+  .. code:: markdown
+
+        ['#222', '#444', '#1023']
+        ['#1023', '#444', '#222']
+
+
 Availability of the documented filters can be found in the table below:
 
-======================  =========  =====  ======  ======
-**filter - hvcs_type**  bitbucket  gitea  github  gitlab
-======================  =========  =====  ======  ======
-autofit_text_width         ✅       ✅      ✅      ✅
-convert_md_to_rst          ✅       ✅      ✅      ✅
-create_server_url          ✅       ✅      ✅      ✅
-create_repo_url            ✅       ✅      ✅      ✅
-commit_hash_url            ✅       ✅      ✅      ✅
-compare_url                ✅       ❌      ✅      ✅
-issue_url                  ❌       ✅      ✅      ✅
-merge_request_url          ❌       ❌      ❌      ✅
-pull_request_url           ✅       ✅      ✅      ✅
-read_file                  ✅       ✅      ✅      ✅
-======================  =========  =====  ======  ======
+==========================  =========  =====  ======  ======
+**filter - hvcs_type**      bitbucket  gitea  github  gitlab
+==========================  =========  =====  ======  ======
+autofit_text_width             ✅       ✅      ✅      ✅
+convert_md_to_rst              ✅       ✅      ✅      ✅
+create_pypi_url                ✅       ✅      ✅      ✅
+create_server_url              ✅       ✅      ✅      ✅
+create_release_url             ❌       ✅      ✅      ✅
+create_repo_url                ✅       ✅      ✅      ✅
+commit_hash_url                ✅       ✅      ✅      ✅
+compare_url                    ✅       ❌      ✅      ✅
+format_w_official_vcs_name     ✅       ✅      ✅      ✅
+issue_url                      ❌       ✅      ✅      ✅
+merge_request_url              ❌       ❌      ❌      ✅
+pull_request_url               ✅       ✅      ✅      ✅
+read_file                      ✅       ✅      ✅      ✅
+sort_numerically               ✅       ✅      ✅      ✅
+==========================  =========  =====  ======  ======
 
 .. seealso::
    * `Filters <https://jinja.palletsprojects.com/en/3.1.x/templates/#filters>`_
@@ -1103,7 +1220,7 @@ __ https://github.com/python-semantic-release/python-semantic-release/tree/maste
     maintain any content that should be included before the new release information.
     See ``data/templates/*/md/.components/changelog_update.md.j2`` for reference.
 
-5.  **Print your insertion flag.** This is impartive to ensure that the resulting
+5.  **Print your insertion flag.** This is imperative to ensure that the resulting
     changelog can be updated in the future. See
     ``data/templates/*/md/.components/changelog_update.md.j2`` for reference.
 

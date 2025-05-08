@@ -63,19 +63,19 @@ SUPPORTED_ISSUE_CLOSURE_PREFIXES = [
     "Implementing",
 ]
 
-ANGULAR_COMMITS_CHORE = ("ci: added a commit lint job\n",)
+CONVENTIONAL_COMMITS_CHORE = ("ci: added a commit lint job\n",)
 # Different in-scope commits that produce a certain release type
-ANGULAR_COMMITS_PATCH = (
-    *ANGULAR_COMMITS_CHORE,
+CONVENTIONAL_COMMITS_PATCH = (
+    *CONVENTIONAL_COMMITS_CHORE,
     "fix: fixed voltage in the flux capacitor\n",
 )
-ANGULAR_COMMITS_MINOR = (
-    *ANGULAR_COMMITS_PATCH,
+CONVENTIONAL_COMMITS_MINOR = (
+    *CONVENTIONAL_COMMITS_PATCH,
     "feat: last minute rush order\n",
 )
 # Take previous commits and insert a breaking change
-ANGULAR_COMMITS_MAJOR = (
-    *ANGULAR_COMMITS_MINOR,
+CONVENTIONAL_COMMITS_MAJOR = (
+    *CONVENTIONAL_COMMITS_MINOR,
     "fix!: big change\n\nBREAKING CHANGE: reworked something for previous feature\n",
 )
 
@@ -104,16 +104,20 @@ EMOJI_COMMITS_MAJOR = (
 
 EXAMPLE_PROJECT_NAME = "example"
 EXAMPLE_PROJECT_VERSION = "0.0.0"
+EXAMPLE_PROJECT_LICENSE = "MIT"
 
 # Uses the internal defaults of semantic-release unless otherwise needed for testing
 # modify the pyproject toml as necessary for the test using update_pyproject_toml()
 # and derivative fixtures
 EXAMPLE_PYPROJECT_TOML_CONTENT = rf"""
+[project]
+license-expression = "{EXAMPLE_PROJECT_LICENSE}"
+
 [tool.poetry]
 name = "{EXAMPLE_PROJECT_NAME}"
 version = "{EXAMPLE_PROJECT_VERSION}"
 description = "Just an example"
-license = "MIT"
+license = "{EXAMPLE_PROJECT_LICENSE}"
 authors = ["semantic-release <not-a.real@email.com>"]
 readme = "README.md"
 classifiers = [

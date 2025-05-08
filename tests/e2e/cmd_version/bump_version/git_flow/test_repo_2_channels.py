@@ -14,7 +14,7 @@ from tests.const import (
     VERSION_SUBCMD,
 )
 from tests.fixtures.repos.git_flow import (
-    repo_w_git_flow_w_alpha_prereleases_n_angular_commits,
+    repo_w_git_flow_w_alpha_prereleases_n_conventional_commits,
     repo_w_git_flow_w_alpha_prereleases_n_emoji_commits,
     repo_w_git_flow_w_alpha_prereleases_n_scipy_commits,
 )
@@ -45,14 +45,12 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     "repo_fixture_name",
     [
-        repo_w_git_flow_w_alpha_prereleases_n_angular_commits.__name__,
-        *[
-            pytest.param(repo_fixture_name, marks=pytest.mark.comprehensive)
-            for repo_fixture_name in [
-                repo_w_git_flow_w_alpha_prereleases_n_emoji_commits.__name__,
-                repo_w_git_flow_w_alpha_prereleases_n_scipy_commits.__name__,
-            ]
-        ],
+        pytest.param(repo_fixture_name, marks=pytest.mark.comprehensive)
+        for repo_fixture_name in [
+            repo_w_git_flow_w_alpha_prereleases_n_conventional_commits.__name__,
+            repo_w_git_flow_w_alpha_prereleases_n_emoji_commits.__name__,
+            repo_w_git_flow_w_alpha_prereleases_n_scipy_commits.__name__,
+        ]
     ],
 )
 def test_gitflow_repo_rebuild_2_channels(

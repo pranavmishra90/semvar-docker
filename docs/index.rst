@@ -69,6 +69,7 @@ Documentation Contents
    Migrating from Python Semantic Release v7 <migrating_from_v7>
    Internal API <api/modules>
    Algorithm <algorithm>
+   Changelog <psr_changelog>
    View on GitHub <https://github.com/python-semantic-release/python-semantic-release>
 
 Getting Started
@@ -139,15 +140,16 @@ Setting up commit parsing
 -------------------------
 
 We rely on commit messages to detect when a version bump is needed.
-By default, Python Semantic Release uses the
-`Angular style <https://github.com/angular/angular.js/blob/master/DEVELOPERS.md#commits>`_.
-You can find out more about this in :ref:`commit-parsing`.
+By default, Python Semantic Release uses the `Conventional Commits Specification`_
+to parse commit messages. You can find out more about this in :ref:`commit-parsing`.
 
 .. seealso::
    - :ref:`config-branches` - Adding configuration for releases from multiple branches.
    - :ref:`commit_parser <config-commit_parser>` - use a different parser for commit messages.
      For example, Python Semantic Release also ships with emoji and scipy-style parsers.
    - :ref:`remote.type <config-remote-type>` - specify the type of your remote VCS.
+
+.. _Conventional Commits Specification: https://www.conventionalcommits.org/en/v1.0.0
 
 Setting up the changelog
 ------------------------
@@ -217,7 +219,7 @@ and changelogs. The user has three options to push changes to the repository:
    - :ref:`Changelog <config-changelog>` - customize your project's changelog.
    - :ref:`changelog-templates-custom_release_notes` - customize the published release notes
    - :ref:`upload_to_vcs_release <config-publish-upload_to_vcs_release>` -
-     enable/disable uploading artefacts to VCS releases
+     enable/disable uploading artifacts to VCS releases
    - :ref:`version --vcs-release/--no-vcs-release <cmd-version-option-vcs-release>` - enable/disable VCS release
      creation.
    - `upload-to-gh-release`_, a GitHub Action for running ``semantic-release publish``

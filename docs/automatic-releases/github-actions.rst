@@ -337,7 +337,7 @@ before the :ref:`version <cmd-version>` subcommand.
 
   .. code:: yaml
 
-    - uses: python-semantic-release/python-semantic-release@v9.16.1
+    - uses: python-semantic-release/python-semantic-release@v9.21.1
       with:
         root_options: "-vv --noop"
 
@@ -576,7 +576,7 @@ before the :ref:`publish <cmd-publish>` subcommand.
 
   .. code:: yaml
 
-    - uses: python-semantic-release/publish-action@v9.16.1
+    - uses: python-semantic-release/publish-action@v9.21.1
       with:
         root_options: "-vv --noop"
 
@@ -643,7 +643,7 @@ Examples
 Common Workflow Example
 -----------------------
 
-The following is a common workflow example that uses both the Python Semantic Release Action
+The following is a simple common workflow example that uses both the Python Semantic Release Action
 and the Python Semantic Release Publish Action. This workflow will run on every push to the
 ``main`` branch and will create a new release upon a successful version determination. If a
 version is released, the workflow will then publish the package to PyPI and upload the package
@@ -661,50 +661,99 @@ to the GitHub Release Assets as well.
     jobs:
       release:
         runs-on: ubuntu-latest
-        concurrency: release
+        concurrency:
+          group: ${{ github.workflow }}-release-${{ github.ref_name }}
+          cancel-in-progress: false
 
         permissions:
           id-token: write
           contents: write
 
         steps:
-          # Note: we need to checkout the repository at the workflow sha in case during the workflow
-          # the branch was updated. To keep PSR working with the configured release branches,
-          # we force a checkout of the desired release branch but at the workflow sha HEAD.
-          - name: Setup | Checkout Repository at workflow sha
+          # Note: We checkout the repository at the branch that triggered the workflow
+          # with the entire history to ensure to match PSR's release branch detection
+          # and history evaluation.
+          # However, we forcefully reset the branch to the workflow sha because it is
+          # possible that the branch was updated while the workflow was running. This
+          # prevents accidentally releasing un-evaluated changes.
+          - name: Setup | Checkout Repository on Release Branch
             uses: actions/checkout@v4
             with:
+              ref: ${{ github.ref_name }}
               fetch-depth: 0
-              ref: ${{ github.sha }}
 
-          - name: Setup | Force correct release branch on workflow sha
+          - name: Setup | Force release branch to be at workflow sha
             run: |
-              git checkout -B ${{ github.ref_name }} ${{ github.sha }}
+              git reset --hard ${{ github.sha }}
+
+          - name: Evaluate | Verify upstream has NOT changed
+            # Last chance to abort before causing an error as another PR/push was applied to
+            # the upstream branch while this workflow was running. This is important
+            # because we are committing a version change (--commit). You may omit this step
+            # if you have 'commit: false' in your configuration.
+            #
+            # You may consider moving this to a repo script and call it from this step instead
+            # of writing it in-line.
+            shell: bash
+            run: |
+              set +o pipefail
+
+              UPSTREAM_BRANCH_NAME="$(git status -sb | head -n 1 | cut -d' ' -f2 | grep -E '\.{3}' | cut -d'.' -f4)"
+              printf '%s\n' "Upstream branch name: $UPSTREAM_BRANCH_NAME"
+
+              set -o pipefail
+
+              if [ -z "$UPSTREAM_BRANCH_NAME" ]; then
+                  printf >&2 '%s\n' "::error::Unable to determine upstream branch name!"
+                  exit 1
+              fi
+
+              git fetch "${UPSTREAM_BRANCH_NAME%%/*}"
+
+              if ! UPSTREAM_SHA="$(git rev-parse "$UPSTREAM_BRANCH_NAME")"; then
+                  printf >&2 '%s\n' "::error::Unable to determine upstream branch sha!"
+                  exit 1
+              fi
+
+              HEAD_SHA="$(git rev-parse HEAD)"
+
+              if [ "$HEAD_SHA" != "$UPSTREAM_SHA" ]; then
+                  printf >&2 '%s\n' "[HEAD SHA] $HEAD_SHA != $UPSTREAM_SHA [UPSTREAM SHA]"
+                  printf >&2 '%s\n' "::error::Upstream has changed, aborting release..."
+                  exit 1
+              fi
+
+              printf '%s\n' "Verified upstream branch has not changed, continuing with release..."
 
           - name: Action | Semantic Version Release
             id: release
             # Adjust tag with desired version if applicable.
-            uses: python-semantic-release/python-semantic-release@v9.16.1
+            uses: python-semantic-release/python-semantic-release@v9.21.1
             with:
               github_token: ${{ secrets.GITHUB_TOKEN }}
               git_committer_name: "github-actions"
               git_committer_email: "actions@users.noreply.github.com"
 
-          - name: Publish | Upload package to PyPI
-            uses: pypa/gh-action-pypi-publish@v1
-            if: steps.release.outputs.released == 'true'
-
           - name: Publish | Upload to GitHub Release Assets
-            uses: python-semantic-release/publish-action@v9.16.1
+            uses: python-semantic-release/publish-action@v9.21.1
             if: steps.release.outputs.released == 'true'
             with:
               github_token: ${{ secrets.GITHUB_TOKEN }}
               tag: ${{ steps.release.outputs.tag }}
 
+          - name: Publish | Upload package to PyPI
+            uses: pypa/gh-action-pypi-publish@SHA1_HASH  # vX.X.X
+            if: steps.release.outputs.released == 'true'
+
 .. important::
   The `concurrency`_ directive is used on the job to prevent race conditions of more than
   one release job in the case if there are multiple pushes to ``main`` in a short period
   of time.
+
+  Secondly the *Evaluate | Verify upstream has NOT changed* step is used to ensure that the
+  upstream branch has not changed while the workflow was running. This is important because
+  we are committing a version change (``commit: true``) and there might be a push collision
+  that would cause undesired behavior. Review Issue `#1201`_ for more detailed information.
 
 .. warning::
   You must set ``fetch-depth`` to 0 when using ``actions/checkout@v4``, since
@@ -721,6 +770,7 @@ to the GitHub Release Assets as well.
   case, you will also need to pass the new token to ``actions/checkout`` (as
   the ``token`` input) in order to gain push access.
 
+.. _#1201: https://github.com/python-semantic-release/python-semantic-release/issues/1201
 .. _concurrency: https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idconcurrency
 
 Version Overrides Example
@@ -744,7 +794,7 @@ The equivalent GitHub Action configuration would be:
 
   - name: Action | Semantic Version Release
     # Adjust tag with desired version if applicable.
-    uses: python-semantic-release/python-semantic-release@v9.16.1
+    uses: python-semantic-release/python-semantic-release@v9.21.1
     with:
       github_token: ${{ secrets.GITHUB_TOKEN }}
       force: patch
@@ -766,19 +816,84 @@ For multiple packages, you would need to run the action multiple times, to relea
 each project. The following example demonstrates how to release two projects in
 a monorepo.
 
+Remember that for each release of each submodule you will then need to handle publishing
+each package separately as well. This is dependent on the result of your build commands.
+In the example below, we assume a simple ``build`` module command to build a ``sdist``
+and wheel artifacts into the submodule's ``dist`` directory.
+
 The ``directory`` input directive is also available for the Python Semantic Release
 Publish Action.
 
 .. code:: yaml
 
-   - name: Release Project 1
-     uses: python-semantic-release/python-semantic-release@v9.16.1
-     with:
-       directory: ./project1
-       github_token: ${{ secrets.GITHUB_TOKEN }}
+  jobs:
 
-   - name: Release Project 2
-     uses: python-semantic-release/python-semantic-release@v9.16.1
-     with:
-       directory: ./project2
-       github_token: ${{ secrets.GITHUB_TOKEN }}
+    release:
+
+      env:
+        SUBMODULE_1_DIR: project1
+        SUBMODULE_2_DIR: project2
+
+      steps:
+
+        # ------------------------------------------------------------------- #
+        # Note the use of different IDs to distinguish which submodule was    #
+        # identified to be released. The subsequent actions then reference    #
+        # their specific release ID to determine if a release occurred.       #
+        # ------------------------------------------------------------------- #
+
+        - name: Release submodule 1
+          id: release-submod-1
+          uses: python-semantic-release/python-semantic-release@v9.21.1
+          with:
+            directory: ${{ env.SUBMODULE_1_DIR }}
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+
+        - name: Release submodule 2
+          id: release-submod-2
+          uses: python-semantic-release/python-semantic-release@v9.21.1
+          with:
+            directory: ${{ env.SUBMODULE_2_DIR }}
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+
+        # ------------------------------------------------------------------- #
+        # For each submodule, you will have to publish the package separately #
+        # and only attempt to publish if the release for that submodule was   #
+        # deemed a release (and the release was successful).                  #
+        # ------------------------------------------------------------------- #
+
+        - name: Publish | Upload package 1 to GitHub Release Assets
+          uses: python-semantic-release/publish-action@v9.21.1
+          if: steps.release-submod-1.outputs.released == 'true'
+          with:
+            directory: ${{ env.SUBMODULE_1_DIR }}
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+            tag: ${{ steps.release-submod-1.outputs.tag }}
+
+        - name: Publish | Upload package 2 to GitHub Release Assets
+          uses: python-semantic-release/publish-action@v9.21.1
+          if: steps.release-submod-2.outputs.released == 'true'
+          with:
+            directory: ${{ env.SUBMODULE_2_DIR }}
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+            tag: ${{ steps.release-submod-2.outputs.tag }}
+
+        # ------------------------------------------------------------------- #
+        # Python Semantic Release is not responsible for publishing your      #
+        # python artifacts to PyPI. Use the official PyPA publish action      #
+        # instead. The following steps are an example but is not guaranteed   #
+        # to work as the action is not maintained by the                      #
+        # python-semantic-release team.                                       #
+        # ------------------------------------------------------------------- #
+
+        - name: Publish | Upload package 1 to PyPI
+          uses: pypa/gh-action-pypi-publish@SHA1_HASH  # vX.X.X
+          if: steps.release-submod-1.outputs.released == 'true'
+          with:
+            packages-dir: ${{ format('{}/dist', env.SUBMODULE_1_DIR) }}
+
+        - name: Publish | Upload package 2 to PyPI
+          uses: pypa/gh-action-pypi-publish@SHA1_HASH  # vX.X.X
+          if: steps.release-submod-2.outputs.released == 'true'
+          with:
+            packages-dir: ${{ format('{}/dist', env.SUBMODULE_2_DIR) }}
